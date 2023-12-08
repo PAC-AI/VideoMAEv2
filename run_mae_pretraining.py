@@ -34,20 +34,20 @@ from utils import multiple_pretrain_samples_collate
 def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--batch_size', default=1, type=int)
     parser.add_argument('--epochs', default=300, type=int)
-    parser.add_argument('--save_ckpt_freq', default=50, type=int)
+    parser.add_argument('--save_ckpt_freq', default=5, type=int)
 
     # Model parameters
     parser.add_argument(
         '--model',
-        default='pretrain_videomae_base_patch16_224',
+        default='pretrain_videomae_giant_patch14_224',
         type=str,
         metavar='MODEL',
         help='Name of model to train')
     parser.add_argument('--tubelet_size', type=int, default=2)
     parser.add_argument(
-        '--with_checkpoint', action='store_true', default=False)
+        '--with_checkpoint', action='store_true', default=True)
 
     parser.add_argument(
         '--decoder_depth', default=4, type=int, help='depth of decoder')
@@ -69,7 +69,7 @@ def get_args():
         '--mask_ratio', default=0.9, type=float, help='mask ratio of encoder')
     parser.add_argument(
         '--decoder_mask_ratio',
-        default=0.0,
+        default=0.5,
         type=float,
         help='mask ratio of decoder')
 
@@ -107,7 +107,7 @@ def get_args():
         help='Optimizer Epsilon (default: 1e-8)')
     parser.add_argument(
         '--opt_betas',
-        default=None,
+        default=[0.9, 0.95],
         type=float,
         nargs='+',
         metavar='BETA',
@@ -115,7 +115,7 @@ def get_args():
     parser.add_argument(
         '--clip_grad',
         type=float,
-        default=None,
+        default=0.02,
         metavar='NORM',
         help='Clip gradient norm (default: None, no clipping)')
     parser.add_argument(
@@ -141,7 +141,7 @@ def get_args():
     parser.add_argument(
         '--lr',
         type=float,
-        default=1.5e-4,
+        default=6e-4,
         metavar='LR',
         help='learning rate (default: 1.5e-4)')
     parser.add_argument(
@@ -160,7 +160,7 @@ def get_args():
     parser.add_argument(
         '--warmup_epochs',
         type=int,
-        default=40,
+        default=30,
         metavar='N',
         help='epochs to warmup LR, if scheduler supports')
     parser.add_argument(
@@ -191,11 +191,11 @@ def get_args():
     # Dataset parameters
     parser.add_argument(
         '--data_path',
-        default='/your/data/annotation/path',
+        default='/data/videos.txt',
         type=str,
         help='dataset path')
     parser.add_argument(
-        '--data_root', default='', type=str, help='dataset path root')
+        '--data_root', default='/data', type=str, help='dataset path root')
     parser.add_argument(
         '--fname_tmpl',
         default='img_{:05}.jpg',
@@ -205,13 +205,13 @@ def get_args():
         '--imagenet_default_mean_and_std', default=True, action='store_true')
     parser.add_argument('--num_frames', type=int, default=16)
     parser.add_argument('--sampling_rate', type=int, default=4)
-    parser.add_argument('--num_sample', type=int, default=1)
+    parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
-        default='',
+        default='/data/output/vit_g_hybrid_pt_1200e',
         help='path where to save, empty for no saving')
     parser.add_argument(
-        '--log_dir', default=None, help='path where to tensorboard log')
+        '--log_dir', default='/data/output/vit_g_hybrid_pt_1200e', help='path where to tensorboard log')
     parser.add_argument(
         '--device',
         default='cuda',
@@ -225,7 +225,7 @@ def get_args():
 
     parser.add_argument(
         '--start_epoch', default=0, type=int, metavar='N', help='start epoch')
-    parser.add_argument('--num_workers', default=10, type=int)
+    parser.add_argument('--num_workers', default=1, type=int)
     parser.add_argument(
         '--pin_mem',
         action='store_true',
@@ -305,7 +305,7 @@ def main(args):
 
     sampler_train = torch.utils.data.DistributedSampler(
         dataset_train, num_replicas=num_tasks, rank=sampler_rank, shuffle=True)
-    print("Sampler_train = %s" % str(sampler_train))
+    # print("Sampler_train = %s" % str(sampler_train))
 
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
@@ -349,7 +349,7 @@ def main(args):
     n_parameters = sum(p.numel() for p in model.parameters()
                        if p.requires_grad)
 
-    print("Model = %s" % str(model_without_ddp))
+    # print("Model = %s" % str(model_without_ddp))
     print('number of params: {} M'.format(n_parameters / 1e6))
 
     # scale the lr
