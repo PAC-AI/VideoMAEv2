@@ -12,6 +12,7 @@ from typing import Iterable
 import torch
 from einops import rearrange
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+import wandb
 
 import utils
 
@@ -29,7 +30,8 @@ def train_one_epoch(model: torch.nn.Module,
                     lr_scheduler=None,
                     start_steps=None,
                     lr_schedule_values=None,
-                    wd_schedule_values=None):
+                    wd_schedule_values=None,
+                    use_wandb=False):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter(
@@ -159,6 +161,14 @@ def train_one_epoch(model: torch.nn.Module,
                 weight_decay_value = group["weight_decay"]
         metric_logger.update(weight_decay=weight_decay_value)
         metric_logger.update(grad_norm=grad_norm)
+
+        if use_wandb:
+            wandb.log({'loss'       : loss_value,
+                       'loss_scale' : loss_scale_value,
+                       'max_lr'     : max_lr,
+                       'min_lr'     : min_lr,
+                       'wd'         : weight_decay_value,
+                       'grad_norm'  : grad_norm})
 
         if log_writer is not None:
             log_writer.update(loss=loss_value, head="loss")

@@ -20,6 +20,7 @@ import torch
 import torch.backends.cudnn as cudnn
 from packaging import version
 from timm.models import create_model
+import wandb
 
 # NOTE: Do not comment `import models`, it is used to register models
 import models  # noqa: F401
@@ -34,14 +35,15 @@ from utils import multiple_pretrain_samples_collate
 def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
-    parser.add_argument('--batch_size', default=1, type=int)
-    parser.add_argument('--epochs', default=300, type=int)
-    parser.add_argument('--save_ckpt_freq', default=5, type=int)
+    parser.add_argument('--use_wandb', action='store_true', default=True)
+    parser.add_argument('--batch_size', default=24, type=int)
+    parser.add_argument('--epochs', default=200, type=int)
+    parser.add_argument('--save_ckpt_freq', default=20, type=int)
 
     # Model parameters
     parser.add_argument(
         '--model',
-        default='pretrain_videomae_giant_patch14_224',
+        default='pretrain_videomae_base_patch16_224',
         type=str,
         metavar='MODEL',
         help='Name of model to train')
@@ -141,7 +143,7 @@ def get_args():
     parser.add_argument(
         '--lr',
         type=float,
-        default=6e-4,
+        default=1e-3,
         metavar='LR',
         help='learning rate (default: 1.5e-4)')
     parser.add_argument(
@@ -160,7 +162,7 @@ def get_args():
     parser.add_argument(
         '--warmup_epochs',
         type=int,
-        default=30,
+        default=20,
         metavar='N',
         help='epochs to warmup LR, if scheduler supports')
     parser.add_argument(
@@ -208,10 +210,10 @@ def get_args():
     parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
-        default='/data/output/vit_g_hybrid_pt_1200e',
+        default='/data/output/vit_b_hybrid_pt_800e',
         help='path where to save, empty for no saving')
     parser.add_argument(
-        '--log_dir', default='/data/output/vit_g_hybrid_pt_1200e', help='path where to tensorboard log')
+        '--log_dir', default='/data/output/vit_b_hybrid_pt_800e', help='path where to tensorboard log')
     parser.add_argument(
         '--device',
         default='cuda',
@@ -225,7 +227,7 @@ def get_args():
 
     parser.add_argument(
         '--start_epoch', default=0, type=int, metavar='N', help='start epoch')
-    parser.add_argument('--num_workers', default=1, type=int)
+    parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument(
         '--pin_mem',
         action='store_true',
@@ -277,6 +279,13 @@ def main(args):
     print(args)
 
     device = torch.device(args.device)
+
+    if args.use_wandb:
+        run_name = args.output_dir.split('/')[-1]
+        wandb.init(project='ClinicalMAE', 
+                   entity='cerc-pac', 
+                   config=args, 
+                   name=run_name)
 
     # fix the seed for reproducibility
     seed = args.seed + utils.get_rank()
@@ -416,7 +425,8 @@ def main(args):
             lr_schedule_values=lr_schedule_values,
             wd_schedule_values=wd_schedule_values,
             patch_size=patch_size[0],
-            normlize_target=args.normlize_target)
+            normlize_target=args.normlize_target,
+            use_wandb=args.use_wandb)
         if args.output_dir:
             _epoch = epoch + 1
             if _epoch % args.save_ckpt_freq == 0 or _epoch == args.epochs:
