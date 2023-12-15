@@ -36,9 +36,9 @@ def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
     parser.add_argument('--use_wandb', action='store_true', default=True)
-    parser.add_argument('--batch_size', default=24, type=int)
+    parser.add_argument('--batch_size', default=28, type=int)
     parser.add_argument('--epochs', default=200, type=int)
-    parser.add_argument('--save_ckpt_freq', default=20, type=int)
+    parser.add_argument('--save_ckpt_freq', default=10, type=int)
 
     # Model parameters
     parser.add_argument(
@@ -193,11 +193,11 @@ def get_args():
     # Dataset parameters
     parser.add_argument(
         '--data_path',
-        default='/data/videos.txt',
+        default='/data/clean_clips.txt',
         type=str,
         help='dataset path')
     parser.add_argument(
-        '--data_root', default='/data', type=str, help='dataset path root')
+        '--data_root', default='/data/icu', type=str, help='dataset path root')
     parser.add_argument(
         '--fname_tmpl',
         default='img_{:05}.jpg',
@@ -206,7 +206,7 @@ def get_args():
     parser.add_argument(
         '--imagenet_default_mean_and_std', default=True, action='store_true')
     parser.add_argument('--num_frames', type=int, default=16)
-    parser.add_argument('--sampling_rate', type=int, default=4)
+    parser.add_argument('--sampling_rate', type=int, default=2)
     parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
