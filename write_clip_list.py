@@ -3,13 +3,19 @@ import sys
 import pathlib
 
 from tqdm import tqdm
+import numpy as np
+from skvideo.io import FFmpegReader
 from decord import VideoReader,cpu
 
 
 def is_clip_readable(clip_f):
     try:
-        reader = VideoReader(str(clip_f))
-        n_frames = sum(1 for f in reader)
+        # reader = VideoReader(str(clip_f))
+        # n_frames = sum(1 for f in reader)
+        reader = FFmpegReader(str(clip_f))
+        n_frames = sum(1 for f in reader.nextFrame())
+        reader.close()
+        assert n_frames > 32
     except KeyboardInterrupt:
         sys.exit(1)
     except:

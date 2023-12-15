@@ -15,8 +15,8 @@ function is_readable() {
     clips_txt_f="/data/clean_clips_${device_d/\//_}.txt"
     corrupt_clips_txt_f="/data/corrupt_clips_${device_d/\//_}.txt"
     for clip_f in ${device_d}/*.mp4; do
-        ffprobe -hide_banner ${clip_f} &> /dev/null
-        if [ $? -eq 0 ]; then
+        nframes=`ffprobe -loglevel error -show_streams ${clip_f} | grep nb_frames | sed 's/nb_frames=//'`
+        if [ $? -eq 0 ] && [[ ${nframes} -gt 100 ]]; then
             echo ${clip_f} >> ${clips_txt_f}
             continue
         else
