@@ -1,15 +1,19 @@
 #! /bin/bash
 
 # set -o errexit
-set -o nounset
+# set -o nounset
 # set -o xtrace
+
+
+data_d=/data/icu
+njobs=1 # $(($(nproc)/3))
 
 function scale_down_clip() {
     input=$1
     output=${input/.mp4/_scaled.mp4}
-    if [ ${input} == "*scaled.mp4" ] || [ -f ${output} ]; then
-        echo skipping -- ${input}
+    if [ -f ${output} ]; then
         rm ${input}
+        echo skipping -- ${input}
         return
     fi
     # ffmpeg -y \
@@ -36,6 +40,7 @@ function scale_down_clip() {
 }
 
 export -f scale_down_clip
-find /data/icu -iname '*t.mp4' | \
+find ${data_d} -iname '*.mp4' | \
+    grep -v '_scaled.mp4' | \
     sort | \
-    xargs -P$(($(nproc)/3)) -I{} bash -c "scale_down_clip {}"
+    xargs -P${njobs} -I{} bash -c "scale_down_clip {}"
