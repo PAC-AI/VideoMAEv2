@@ -11,14 +11,20 @@ function scale_down_clip() {
         echo exists -- ${input}
         return
     fi
+    # ffmpeg -y \
+    #     -hide_banner \
+    #     -loglevel error \
+    #     -hwaccel cuda \
+    #     -hwaccel_output_format cuda \
+    #     -i ${input} \
+    #     -vf scale_cuda=1280:720 \
+    #     -c:v h264_nvenc \
+    #     ${output}
     ffmpeg -y \
         -hide_banner \
         -loglevel error \
-        -hwaccel cuda \
-        -hwaccel_output_format cuda \
         -i ${input} \
-        -vf scale_cuda=1280:720 \
-        -c:v h264_nvenc \
+        -vf scale=1280:720 \
         ${output}
     if [ $? -eq 0 ]; then
         rm ${input}
@@ -30,5 +36,5 @@ function scale_down_clip() {
 }
 
 export -f scale_down_clip
-find /data/icu -iname '*.mp4' | \
-    xargs -P32 -I{} bash -c "scale_down_clip {}"
+find /data/icu -iname '*t.mp4' | \
+    xargs -P$(($(nproc)/3)) -I{} bash -c "scale_down_clip {}"
