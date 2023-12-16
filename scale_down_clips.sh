@@ -7,8 +7,9 @@ set -o nounset
 function scale_down_clip() {
     input=$1
     output=${input/.mp4/_scaled.mp4}
-    if [ ${input} == "*scaled.mp4" ]; then
-        echo exists -- ${input}
+    if [ ${input} == "*scaled.mp4" ] || [ -f ${output} ]; then
+        echo skipping -- ${input}
+        rm ${input}
         return
     fi
     # ffmpeg -y \
@@ -30,11 +31,11 @@ function scale_down_clip() {
         rm ${input}
         echo ${output}
     else
-        rm ${input} ${output}
         echo [failed] ${output}
     fi
 }
 
 export -f scale_down_clip
 find /data/icu -iname '*t.mp4' | \
+    sort | \
     xargs -P$(($(nproc)/3)) -I{} bash -c "scale_down_clip {}"
