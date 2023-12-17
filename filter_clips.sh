@@ -14,6 +14,7 @@ njobs=$(($(nproc)/3))
 
 function filter_clip() {
 	if [ ! -f ${clip_f} ]; then
+		echo [missing] ${clip_f}
 		return
 	fi
     clip_f=$1
