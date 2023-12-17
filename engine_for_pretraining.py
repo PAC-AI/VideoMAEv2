@@ -13,6 +13,7 @@ import torch
 from einops import rearrange
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 import wandb
+from tqdm import tqdm
 
 import utils
 
@@ -39,10 +40,11 @@ def train_one_epoch(model: torch.nn.Module,
     metric_logger.add_meter(
         'min_lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 20
+    print_freq = 5
 
-    for step, batch in enumerate(
-            metric_logger.log_every(data_loader, print_freq, header)):
+    for step,batch in enumerate(tqdm(data_loader)):
+    # for step, batch in enumerate(
+    #         metric_logger.log_every(data_loader, print_freq, header)):
         # assign learning rate & weight decay for each step
         it = start_steps + step  # global training iteration
         if lr_schedule_values is not None or wd_schedule_values is not None:

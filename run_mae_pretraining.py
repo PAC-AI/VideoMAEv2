@@ -21,6 +21,7 @@ import torch.backends.cudnn as cudnn
 from packaging import version
 from timm.models import create_model
 import wandb
+from tqdm import tqdm
 
 # NOTE: Do not comment `import models`, it is used to register models
 import models  # noqa: F401
@@ -38,7 +39,7 @@ def get_args():
     parser.add_argument('--use_wandb', action='store_true', default=True)
     parser.add_argument('--batch_size', default=28, type=int)
     parser.add_argument('--epochs', default=200, type=int)
-    parser.add_argument('--save_ckpt_freq', default=10, type=int)
+    parser.add_argument('--save_ckpt_freq', default=1, type=int)
 
     # Model parameters
     parser.add_argument(
@@ -193,7 +194,7 @@ def get_args():
     # Dataset parameters
     parser.add_argument(
         '--data_path',
-        default='/data/clean_clips.txt',
+        default='/data/clips.txt',
         type=str,
         help='dataset path')
     parser.add_argument(
@@ -336,7 +337,20 @@ def main(args):
         drop_last=True,
         collate_fn=collate_func,
         worker_init_fn=utils.seed_worker,
+        prefetch_factor=1,
         persistent_workers=True)
+    
+    ##########################################
+    # import time
+    # beg_t = time.time()
+    # for i,batch in enumerate(tqdm(data_loader_train)):
+    #     pass
+    #     # if i >= 39:
+    #     #     break
+    # end_t = time.time()
+    # elapsed_t = end_t-beg_t
+    # print(elapsed_t/40)
+    ##########################################
 
     if args.finetune:
         checkpoint = torch.load(args.finetune, map_location='cpu')

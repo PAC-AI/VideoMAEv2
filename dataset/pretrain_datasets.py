@@ -426,54 +426,59 @@ class VideoMAE(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         try:
-            video_name,_,_ = self.clips[index]
-            nframes = self.new_length
-            stride = self.new_step
-            with FFmpegReader(video_name) as reader:
-                total_frames = sum(1 for f in reader.nextFrame())
-            if total_frames < 100:
-                print(f'{video_name} total frames < 100')
-                open('/data/short_clips_training.txt','a').write(video_name+'\n')
-                index = random.randint(0, len(self.clips) - 1)
-                return self.__getitem__(index)
-            beg_i = random.randint(0, total_frames - nframes*stride)
-            frame_ids = set(range(beg_i,beg_i+nframes*stride,stride))
-            with FFmpegReader(video_name) as reader:
-                images = [Image.fromarray(f)
-                            for i,f in enumerate(reader.nextFrame())
-                            if i in frame_ids]
-            # video_name, start_idx, total_frame = self.clips[index]
-            # if total_frame < 0:  # load video
-            #     decord_vr = self.video_loader(video_name)
-            #     duration = len(decord_vr)
+            # video_name,_,_ = self.clips[index]
+            # nframes = self.new_length
+            # stride = self.new_step
+            # reader = FFmpegReader(video_name)
+            # total_frames = sum(1 for f in reader.nextFrame())
+            # reader.close()
+            # if total_frames < nframes*stride*2:
+            #     print(f'{video_name} total frames < {nframes*stride*2}')
+            #     open('/data/short_clips.txt','a').write(video_name+'\n')
+            #     index = random.randint(0, len(self.clips) - 1)
+            #     return self.__getitem__(index)
+            # beg_i = random.randint(0, total_frames - nframes*stride)
+            # frame_ids = set(range(beg_i,beg_i+nframes*stride,stride))
+            # reader = FFmpegReader(video_name)
+            # images = list()
+            # for i,f in enumerate(reader.nextFrame()):
+            #     if i in frame_ids:
+            #         images.append(Image.fromarray(f))
+            #         if len(images) >= nframes:
+            #             break
+            # reader.close()
+            video_name, start_idx, total_frame = self.clips[index]
+            if total_frame < 0:  # load video
+                decord_vr = self.video_loader(video_name)
+                duration = len(decord_vr)
 
-            #     segment_indices, skip_offsets = self._sample_train_indices(
-            #         duration)
-            #     frame_id_list = self.get_frame_id_list(duration,
-            #                                            segment_indices,
-            #                                            skip_offsets)
-            #     video_data = decord_vr.get_batch(frame_id_list).asnumpy()
-            #     images = [
-            #         Image.fromarray(video_data[vid, :, :, :]).convert('RGB')
-            #         for vid, _ in enumerate(frame_id_list)
-            #     ]
-            # else:  # load frames
-            #     segment_indices, skip_offsets = self._sample_train_indices(
-            #         total_frame)
-            #     frame_id_list = self.get_frame_id_list(total_frame,
-            #                                            segment_indices,
-            #                                            skip_offsets)
+                segment_indices, skip_offsets = self._sample_train_indices(
+                    duration)
+                frame_id_list = self.get_frame_id_list(duration,
+                                                       segment_indices,
+                                                       skip_offsets)
+                video_data = decord_vr.get_batch(frame_id_list).asnumpy()
+                images = [
+                    Image.fromarray(video_data[vid, :, :, :]).convert('RGB')
+                    for vid, _ in enumerate(frame_id_list)
+                ]
+            else:  # load frames
+                segment_indices, skip_offsets = self._sample_train_indices(
+                    total_frame)
+                frame_id_list = self.get_frame_id_list(total_frame,
+                                                       segment_indices,
+                                                       skip_offsets)
 
-            #     images = []
-            #     for idx in frame_id_list:
-            #         frame_fname = os.path.join(
-            #             video_name, self.name_pattern.format(idx + start_idx))
-            #         img = self.image_loader(frame_fname)
-            #         img = Image.fromarray(img)
-            #         images.append(img)
+                images = []
+                for idx in frame_id_list:
+                    frame_fname = os.path.join(
+                        video_name, self.name_pattern.format(idx + start_idx))
+                    img = self.image_loader(frame_fname)
+                    img = Image.fromarray(img)
+                    images.append(img)
 
         except Exception as e:
-            open('/data/corrupt_clips_training.txt','a').write(video_name+'\n')
+            open('/data/corrupt_clips.txt','a').write(video_name+'\n')
             print("Failed to load video from {} with error {}".format(
                 video_name, e))
             index = random.randint(0, len(self.clips) - 1)
