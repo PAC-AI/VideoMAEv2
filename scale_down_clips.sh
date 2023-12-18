@@ -6,7 +6,7 @@
 
 
 data_d=/data/icu
-njobs=1 # $(($(nproc)/3))
+njobs=$(($(nproc)/3))
 
 function scale_down_clip() {
     input=$1
@@ -29,7 +29,7 @@ function scale_down_clip() {
         -hide_banner \
         -loglevel error \
         -i ${input} \
-        -vf scale=1280:720 \
+        -vf scale=960:540 \
         ${output}
     if [ $? -eq 0 ]; then
         rm ${input}
