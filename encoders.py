@@ -5,6 +5,8 @@ import torch
 from models.modeling_pretrain import PretrainVisionTransformerEncoder
 
 class VideoMAEv2Base(torch.nn.Module):
+    # VideoMAEv2 base model was pretrained separately. The base model uses 
+    # the params hardcoded here.
     def __init__(self,
                  pretrained_path:pathlib.Path=None,
                  frozen:bool=False,
@@ -18,16 +20,18 @@ class VideoMAEv2Base(torch.nn.Module):
         #                  device,
         #                  num_frames)
         self.ckpt_f = pretrained_path
-        # VideoMAEv2 base model was pretrained separately. The base model uses 
-        # the below params. Hardcoding them here.
-        self.H,self.W,self.C,self.T = 224,224,3,16 # height,weight,frames
-        self.PH,self.PW,self.PT = 16,16,2 # patch-(height,weight,frames)
+        # height,weight,channels,frames
+        self.H,self.W,self.C,self.T = 224,224,3,16
+        # patch-(height,weight,frames)
+        self.PH,self.PW,self.PT = 16,16,2
+        # num-patches-(height,weight,frames)
         self.NH,self.NW,self.NT = (int(self.H/self.PH),
                                    int(self.W/self.PW),
-                                   int(self.T/self.PT)) # num-patches-(height,weight,frames)
+                                   int(self.T/self.PT)) 
         self.N = self.NH*self.NW*self.NT # num-patches-total
         self.E = 768
-        assert num_frames == self.T, 'VideoMAEv2Base was pretrained with num_frames=16'
+        msg = f'VideoMAEv2Base was pretrained with num_frames={self.T}'
+        assert num_frames == self.T,msg
         self.encoder = PretrainVisionTransformerEncoder(
             img_size=self.H, 
             patch_size=self.PH,
@@ -56,8 +60,8 @@ class VideoMAEv2Base(torch.nn.Module):
         print(f'loading pretrained weights from {self.ckpt_f}')
         ckpt = torch.load(self.ckpt_f, map_location='cpu')
         errs = self.load_state_dict(ckpt['model'],strict=False)
-        # There will be more keys in the checkpoint file than needed.
-        # Just make sure there are no missing keys. Having unexpected keys is okay.
+        # There will be more keys in the checkpoint file than needed. Make sure
+        # there are no missing keys. Having unexpected keys is okay.
         assert not errs.missing_keys
         
     def forward(self, video_batch):
@@ -69,7 +73,8 @@ class VideoMAEv2Base(torch.nn.Module):
         NH,NW,NT,N,E = self.NH,self.NW,self.NT,self.N,self.E
         # Create an empty mask, i.e. do not mask anything.
         # This is to use VideoMAEv2 implementation which requires `mask`.
-        mask = torch.full([B,N], False, dtype=torch.bool, device=video_batch.device)
+        mask = torch.full([B,N], False,
+                          dtype=torch.bool, device=video_batch.device)
         emb = self.encoder(video_batch,mask) # [B,N,E]
         emb = emb.reshape([B,NT,NH,NW,E])
         return emb
@@ -82,8 +87,8 @@ class VideoMAEv2Base(torch.nn.Module):
         return (NT,NH,NW,E)
 
     def convert_spatio_temporal_embeds_to_video(self, spatio_temporal_embeds):
-        # Just returning the input. This should return a tensor of shape [B,D] where
-        # D is the dim of the video level embeds.
+        # Just returning the input. This should return a tensor of shape [B,D]
+        # where D is the dim of the video level embeds.
         return spatio_temporal_embeds
     
     def get_video_level_embed_dim(self):
@@ -97,6 +102,7 @@ if __name__ == '__main__':
     import utils
     import dataset
 
+    ckpt_f = pathlib.Path('/data/output/vit_b_hybrid_pt_800e/checkpoint-51.pth')
     args = argparse.Namespace(input_size=224,
                               mask_type='tube',
                               window_size=(8,14,14),
@@ -111,7 +117,7 @@ if __name__ == '__main__':
                               num_sample=2,
                               batch_size=2,
                               num_workers=0,
-                              ckpt_f=pathlib.Path('/data/output/vit_b_hybrid_pt_800e/checkpoint-51.pth'))
+                              ckpt_f=ckpt_f)
     dataset = dataset.build_pretraining_dataset(args)
     dataloader = torch.utils.data.DataLoader(
         dataset,
