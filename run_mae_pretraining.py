@@ -207,11 +207,11 @@ def get_args():
     parser.add_argument(
         '--imagenet_default_mean_and_std', default=True, action='store_true')
     parser.add_argument('--num_frames', type=int, default=16)
-    parser.add_argument('--sampling_rate', type=int, default=2)
+    parser.add_argument('--sampling_rate', type=int, default=5)
     parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
-        default='/data/output/vit_b_hybrid_pt_800e',
+        default='/data/output/VideoMAEv2_base',
         help='path where to save, empty for no saving')
     parser.add_argument(
         '--log_dir', default='/data/output/vit_b_hybrid_pt_800e', help='path where to tensorboard log')
