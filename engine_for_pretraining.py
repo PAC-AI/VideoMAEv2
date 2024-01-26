@@ -165,8 +165,9 @@ def train_one_epoch(model: torch.nn.Module,
         metric_logger.update(grad_norm=grad_norm)
 
         if use_wandb:
-            wandb.log({'epoch'       : epoch,
-                      'loss'       : loss_value,
+            wandb.log({'epoch'      : epoch,
+                       'step'       : it,
+                       'loss'       : loss_value,
                        'loss_scale' : loss_scale_value,
                        'max_lr'     : max_lr,
                        'min_lr'     : min_lr,

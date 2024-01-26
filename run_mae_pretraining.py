@@ -286,7 +286,8 @@ def main(args):
         wandb.init(project='ClinicalMAE', 
                    entity='cerc-pac', 
                    config=args, 
-                   name=run_name)
+                   name=run_name,
+                   resume=True)
 
     # fix the seed for reproducibility
     seed = args.seed + utils.get_rank()
