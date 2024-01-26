@@ -42,7 +42,7 @@ def train_one_epoch(model: torch.nn.Module,
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 5
 
-    for step,batch in enumerate(tqdm(data_loader)):
+    for step,batch in enumerate(tqdm(data_loader,desc=f'epoch {epoch}')):
     # for step, batch in enumerate(
     #         metric_logger.log_every(data_loader, print_freq, header)):
         # assign learning rate & weight decay for each step
@@ -165,7 +165,8 @@ def train_one_epoch(model: torch.nn.Module,
         metric_logger.update(grad_norm=grad_norm)
 
         if use_wandb:
-            wandb.log({'loss'       : loss_value,
+            wandb.log('epoch'       : epoch,
+                      {'loss'       : loss_value,
                        'loss_scale' : loss_scale_value,
                        'max_lr'     : max_lr,
                        'min_lr'     : min_lr,
