@@ -166,13 +166,13 @@ def train_one_epoch(model: torch.nn.Module,
 
         if use_wandb:
             wandb.log({'epoch'      : epoch,
-                       'step'       : it,
                        'loss'       : loss_value,
                        'loss_scale' : loss_scale_value,
                        'max_lr'     : max_lr,
                        'min_lr'     : min_lr,
                        'wd'         : weight_decay_value,
-                       'grad_norm'  : grad_norm})
+                       'grad_norm'  : grad_norm},
+                       step=it)
 
         if log_writer is not None:
             log_writer.update(loss=loss_value, head="loss")
