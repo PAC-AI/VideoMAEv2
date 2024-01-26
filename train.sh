@@ -8,7 +8,7 @@ NODE_RANK=0
 RANK0_IP='10.128.15.246'
 RANK0_PORT=4532
 
-if [ ${NODE_RANK} -neq 0 ]; then
+if [ ${NODE_RANK} != 0 ]; then
 	rsync -az ${RANK0_IP}:/data/output/ /data/output
 fi
 
