@@ -37,7 +37,7 @@ def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
     parser.add_argument('--use_wandb', action='store_true', default=True)
-    parser.add_argument('--batch_size', default=28, type=int)
+    parser.add_argument('--batch_size', default=52, type=int)
     parser.add_argument('--epochs', default=200, type=int)
     parser.add_argument('--save_ckpt_freq', default=1, type=int)
 
@@ -75,6 +75,9 @@ def get_args():
         default=0.5,
         type=float,
         help='mask ratio of decoder')
+    
+    parser.add_argument('--cross_attn',action='store_true',default=True,
+                        help='Use Cross Attention in Decoder.')
 
     parser.add_argument(
         '--input_size',
@@ -211,10 +214,10 @@ def get_args():
     parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
-        default='/data/output/VideoMAEv2_base',
+        default='/data/output/cross_attn',
         help='path where to save, empty for no saving')
     parser.add_argument(
-        '--log_dir', default='/data/output/vit_b_hybrid_pt_800e', help='path where to tensorboard log')
+        '--log_dir', default='/data/output/cross_attn', help='path where to tensorboard log')
     parser.add_argument(
         '--device',
         default='cuda',
@@ -228,7 +231,7 @@ def get_args():
 
     parser.add_argument(
         '--start_epoch', default=0, type=int, metavar='N', help='start epoch')
-    parser.add_argument('--num_workers', default=8, type=int)
+    parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument(
         '--pin_mem',
         action='store_true',
@@ -265,7 +268,8 @@ def get_model(args):
         all_frames=args.num_frames,
         tubelet_size=args.tubelet_size,
         decoder_depth=args.decoder_depth,
-        with_cp=args.with_checkpoint)
+        with_cp=args.with_checkpoint,
+        cross_attn=args.cross_attn)
 
     if version.parse(torch.__version__) > version.parse('1.13.1'):
         torch.set_float32_matmul_precision('high')
@@ -283,7 +287,7 @@ def main(args):
 
     if args.use_wandb:
         run_name = args.output_dir.split('/')[-1]
-        wandb.init(project='ClinicalMAE', 
+        wandb.init(project='CrossMAE', 
                    entity='cerc-pac', 
                    config=args, 
                    name=run_name)

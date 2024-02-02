@@ -14,6 +14,7 @@ from timm.models.layers import trunc_normal_ as __call_trunc_normal_
 from timm.models.registry import register_model
 
 from .modeling_finetune import (
+    CrossAttentionBlock,
     Block,
     PatchEmbed,
     _cfg,
@@ -165,7 +166,8 @@ class PretrainVisionTransformerDecoder(nn.Module):
                  num_patches=196,
                  tubelet_size=2,
                  with_cp=False,
-                 cos_attn=False):
+                 cos_attn=False,
+                 cross_attn=False):
         super().__init__()
         self.num_classes = num_classes
         assert num_classes == 3 * tubelet_size * patch_size**2
@@ -173,23 +175,39 @@ class PretrainVisionTransformerDecoder(nn.Module):
         self.num_features = self.embed_dim = embed_dim
         self.patch_size = patch_size
         self.with_cp = with_cp
+        self.cross_attn = cross_attn
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)
                ]  # stochastic depth decay rule
-        self.blocks = nn.ModuleList([
-            Block(
-                dim=embed_dim,
-                num_heads=num_heads,
-                mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias,
-                qk_scale=qk_scale,
-                drop=drop_rate,
-                attn_drop=attn_drop_rate,
-                drop_path=dpr[i],
-                norm_layer=norm_layer,
-                init_values=init_values,
-                cos_attn=cos_attn) for i in range(depth)
-        ])
+        if self.cross_attn:
+            self.blocks = nn.ModuleList([
+                CrossAttentionBlock(
+                    dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    qk_scale=qk_scale,
+                    drop=drop_rate,
+                    attn_drop=attn_drop_rate,
+                    drop_path=dpr[i],
+                    norm_layer=norm_layer,
+                    init_values=init_values) for i in range(depth)
+            ])
+        else:
+            self.blocks = nn.ModuleList([
+                Block(
+                    dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    qk_scale=qk_scale,
+                    drop=drop_rate,
+                    attn_drop=attn_drop_rate,
+                    drop_path=dpr[i],
+                    norm_layer=norm_layer,
+                    init_values=init_values,
+                    cos_attn=cos_attn) for i in range(depth)
+            ])
         self.norm = norm_layer(embed_dim)
         self.head = nn.Linear(
             embed_dim, num_classes) if num_classes > 0 else nn.Identity()
@@ -220,16 +238,24 @@ class PretrainVisionTransformerDecoder(nn.Module):
         self.head = nn.Linear(
             self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward(self, x, return_token_num):
-        for blk in self.blocks:
-            if self.with_cp:
-                x = cp.checkpoint(blk, x)
-            else:
-                x = blk(x)
+    def forward(self, x, n_masked):
+        if self.cross_attn:
+            y,x = x[:,:-n_masked],x[:,-n_masked:]
+            for blk in self.blocks:
+                if self.with_cp:
+                    x = cp.checkpoint(blk, x, y)
+                else:
+                    x = blk(x, y)
+        else:
+            for blk in self.blocks:
+                if self.with_cp:
+                    x = cp.checkpoint(blk, x)
+                else:
+                    x = blk(x)
 
-        if return_token_num > 0:
+        if n_masked > 0:
             # only return the mask tokens predict pixels
-            x = self.head(self.norm(x[:, -return_token_num:]))
+            x = self.head(self.norm(x[:, -n_masked:]))
         else:
             # [B, N, 3*16^2]
             x = self.head(self.norm(x))
@@ -268,6 +294,7 @@ class PretrainVisionTransformer(nn.Module):
         with_cp=False,
         all_frames=16,
         cos_attn=False,
+        cross_attn=False
     ):
         super().__init__()
         self.encoder = PretrainVisionTransformerEncoder(
@@ -309,7 +336,8 @@ class PretrainVisionTransformer(nn.Module):
             init_values=init_values,
             tubelet_size=tubelet_size,
             with_cp=with_cp,
-            cos_attn=cos_attn)
+            cos_attn=cos_attn,
+            cross_attn=cross_attn)
 
         self.encoder_to_decoder = nn.Linear(
             encoder_embed_dim, decoder_embed_dim, bias=False)

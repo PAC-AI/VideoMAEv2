@@ -195,6 +195,53 @@ class Attention(nn.Module):
         return x
 
 
+class CrossAttention(nn.Module):
+
+    def __init__(self,
+                 dim,
+                 num_heads=8,
+                 qkv_bias=False,
+                 qk_scale=None,
+                 attn_drop=0.,
+                 proj_drop=0.,
+                 attn_head_dim=None):
+        super().__init__()
+        self.num_heads = num_heads
+        self.qkv_bias = qkv_bias
+        head_dim = dim // num_heads
+        if attn_head_dim is not None:
+            head_dim = attn_head_dim
+        all_head_dim = head_dim * self.num_heads
+        self.scale = qk_scale or head_dim**-0.5
+
+        self.q = nn.Linear(dim,all_head_dim,bias=self.qkv_bias)
+        self.kv = nn.Linear(dim,all_head_dim*2,bias=self.qkv_bias)
+
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(all_head_dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x, y):
+        B, N, C = x.shape
+        Ny = y.shape[1]
+
+        q = self.q(x).reshape(B,N,self.num_heads,-1).permute(0,2,1,3)
+        kv = self.kv(y).reshape(B,Ny,2,self.num_heads,-1).permute(2,0,3,1,4)
+        k,v = kv[0],kv[1]
+
+        q = q * self.scale
+        attn = (q @ k.transpose(-2, -1))
+
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, -1)
+
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
 class Block(nn.Module):
 
     def __init__(self,
@@ -256,6 +303,60 @@ class Block(nn.Module):
             x = x + self.drop_path(self.mlp(self.norm2(x)))
         else:
             x = x + self.drop_path(self.gamma_1 * self.attn(self.norm1(x)))
+            x = x + self.drop_path(self.gamma_2 * self.mlp(self.norm2(x)))
+        return x
+
+
+class CrossAttentionBlock(nn.Module):
+
+    def __init__(self,
+                 dim,
+                 num_heads,
+                 mlp_ratio=4.,
+                 qkv_bias=False,
+                 qk_scale=None,
+                 drop=0.,
+                 attn_drop=0.,
+                 drop_path=0.,
+                 init_values=None,
+                 act_layer=nn.GELU,
+                 norm_layer=nn.LayerNorm,
+                 attn_head_dim=None):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.attn = CrossAttention(
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
+            attn_drop=attn_drop,
+            proj_drop=drop,
+            attn_head_dim=attn_head_dim)
+        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
+        self.drop_path = DropPath(
+            drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = Mlp(
+            in_features=dim,
+            hidden_features=mlp_hidden_dim,
+            act_layer=act_layer,
+            drop=drop)
+
+        if init_values > 0:
+            self.gamma_1 = nn.Parameter(
+                init_values * torch.ones((dim)), requires_grad=True)
+            self.gamma_2 = nn.Parameter(
+                init_values * torch.ones((dim)), requires_grad=True)
+        else:
+            self.gamma_1, self.gamma_2 = None, None
+
+    def forward(self, x, y):
+        if self.gamma_1 is None:
+            x = x + self.drop_path(self.attn(self.norm1(x),y))
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+        else:
+            x = x + self.drop_path(self.gamma_1 * self.attn(self.norm1(x),y))
             x = x + self.drop_path(self.gamma_2 * self.mlp(self.norm2(x)))
         return x
 
