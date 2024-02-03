@@ -37,7 +37,7 @@ def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
     parser.add_argument('--use_wandb', action='store_true', default=True)
-    parser.add_argument('--batch_size', default=52, type=int)
+    parser.add_argument('--batch_size', default=30, type=int)
     parser.add_argument('--epochs', default=200, type=int)
     parser.add_argument('--save_ckpt_freq', default=1, type=int)
 
@@ -78,6 +78,8 @@ def get_args():
     
     parser.add_argument('--cross_attn',action='store_true',default=True,
                         help='Use Cross Attention in Decoder.')
+    parser.add_argument('--block_attn',action='store_true',default=True,
+                        help='User Block Attention in Decoder.')
 
     parser.add_argument(
         '--input_size',
@@ -214,10 +216,10 @@ def get_args():
     parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
-        default='/data/output/cross_attn',
+        default='/data/output/cross_attn_block_attn_b30',
         help='path where to save, empty for no saving')
     parser.add_argument(
-        '--log_dir', default='/data/output/cross_attn', help='path where to tensorboard log')
+        '--log_dir', default='/data/output/cross_attn_block_attn_b30', help='path where to tensorboard log')
     parser.add_argument(
         '--device',
         default='cuda',
@@ -269,7 +271,8 @@ def get_model(args):
         tubelet_size=args.tubelet_size,
         decoder_depth=args.decoder_depth,
         with_cp=args.with_checkpoint,
-        cross_attn=args.cross_attn)
+        cross_attn=args.cross_attn,
+        block_attn=args.block_attn)
 
     if version.parse(torch.__version__) > version.parse('1.13.1'):
         torch.set_float32_matmul_precision('high')

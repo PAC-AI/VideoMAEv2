@@ -50,8 +50,10 @@ class PretrainVisionTransformerEncoder(nn.Module):
                  use_learnable_pos_emb=False,
                  with_cp=False,
                  all_frames=16,
-                 cos_attn=False):
+                 cos_attn=False,
+                 block_attn=False):
         super().__init__()
+        self.block_attn = block_attn
         self.num_classes = num_classes
         # num_features for consistency with other models
         self.num_features = self.embed_dim = embed_dim
@@ -130,13 +132,23 @@ class PretrainVisionTransformerEncoder(nn.Module):
         B, _, C = x.shape
         x_vis = x[~mask].reshape(B, -1, C)  # ~mask means visible
 
-        for blk in self.blocks:
-            if self.with_cp:
-                x_vis = cp.checkpoint(blk, x_vis)
-            else:
-                x_vis = blk(x_vis)
+        if self.block_attn:
+            x_feats = [x_vis]
+            for blk in self.blocks:
+                if self.with_cp:
+                    x_vis = cp.checkpoint(blk, x_vis)
+                else:
+                    x_vis = blk(x_vis)
+                x_feats.append(x_vis)
+            x_vis = x_feats
+        else:
+            for blk in self.blocks:
+                if self.with_cp:
+                    x_vis = cp.checkpoint(blk, x_vis)
+                else:
+                    x_vis = blk(x_vis)
 
-        x_vis = self.norm(x_vis)
+            x_vis = self.norm(x_vis)
         return x_vis
 
     def forward(self, x, mask):
@@ -154,6 +166,7 @@ class PretrainVisionTransformerDecoder(nn.Module):
                  num_classes=768,
                  embed_dim=768,
                  depth=12,
+                 enc_depth=12,
                  num_heads=12,
                  mlp_ratio=4.,
                  qkv_bias=False,
@@ -167,7 +180,8 @@ class PretrainVisionTransformerDecoder(nn.Module):
                  tubelet_size=2,
                  with_cp=False,
                  cos_attn=False,
-                 cross_attn=False):
+                 cross_attn=False,
+                 block_attn=False):
         super().__init__()
         self.num_classes = num_classes
         assert num_classes == 3 * tubelet_size * patch_size**2
@@ -176,6 +190,10 @@ class PretrainVisionTransformerDecoder(nn.Module):
         self.patch_size = patch_size
         self.with_cp = with_cp
         self.cross_attn = cross_attn
+        self.block_attn = block_attn
+
+        if self.block_attn:
+            self.weight_feats = nn.Linear(enc_depth+1,depth,bias=False)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)
                ]  # stochastic depth decay rule
@@ -238,27 +256,30 @@ class PretrainVisionTransformerDecoder(nn.Module):
         self.head = nn.Linear(
             self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward(self, x, n_masked):
+    def forward(self, y, x):
+        if self.block_attn:
+            y = torch.stack(y,dim=-1)
+            y = self.weight_feats(y)
+            y = y.split(1,dim=-1)
+            y = [f.squeeze(dim=-1)
+                 for f in y]
+        else:
+            y = [y]*len(self.blocks)
         if self.cross_attn:
-            y,x = x[:,:-n_masked],x[:,-n_masked:]
-            for blk in self.blocks:
+            for i,blk in enumerate(self.blocks):
                 if self.with_cp:
-                    x = cp.checkpoint(blk, x, y)
+                    x = cp.checkpoint(blk, x, y[i])
                 else:
                     x = blk(x, y)
         else:
+            x = torch.cat([y,x],dim=1)
             for blk in self.blocks:
                 if self.with_cp:
                     x = cp.checkpoint(blk, x)
                 else:
                     x = blk(x)
 
-        if n_masked > 0:
-            # only return the mask tokens predict pixels
-            x = self.head(self.norm(x[:, -n_masked:]))
-        else:
-            # [B, N, 3*16^2]
-            x = self.head(self.norm(x))
+        x = self.head(self.norm(x))
         return x
 
 
@@ -294,7 +315,8 @@ class PretrainVisionTransformer(nn.Module):
         with_cp=False,
         all_frames=16,
         cos_attn=False,
-        cross_attn=False
+        cross_attn=False,
+        block_attn=False
     ):
         super().__init__()
         self.encoder = PretrainVisionTransformerEncoder(
@@ -317,7 +339,8 @@ class PretrainVisionTransformer(nn.Module):
             use_learnable_pos_emb=use_learnable_pos_emb,
             with_cp=with_cp,
             all_frames=all_frames,
-            cos_attn=cos_attn)
+            cos_attn=cos_attn,
+            block_attn=block_attn)
 
         self.decoder = PretrainVisionTransformerDecoder(
             patch_size=patch_size,
@@ -325,6 +348,7 @@ class PretrainVisionTransformer(nn.Module):
             num_classes=decoder_num_classes,
             embed_dim=decoder_embed_dim,
             depth=decoder_depth,
+            enc_depth=encoder_depth,
             num_heads=decoder_num_heads,
             mlp_ratio=mlp_ratio,
             qkv_bias=qkv_bias,
@@ -337,7 +361,10 @@ class PretrainVisionTransformer(nn.Module):
             tubelet_size=tubelet_size,
             with_cp=with_cp,
             cos_attn=cos_attn,
-            cross_attn=cross_attn)
+            cross_attn=cross_attn,
+            block_attn=block_attn)
+        
+        self.block_attn = block_attn
 
         self.encoder_to_decoder = nn.Linear(
             encoder_embed_dim, decoder_embed_dim, bias=False)
@@ -369,8 +396,13 @@ class PretrainVisionTransformer(nn.Module):
         decode_vis = mask if decode_mask is None else ~decode_mask
 
         x_vis = self.encoder(x, mask)  # [B, N_vis, C_e]
-        x_vis = self.encoder_to_decoder(x_vis)  # [B, N_vis, C_d]
-        B, N_vis, C = x_vis.shape
+        if self.block_attn:
+            x_vis = [self.encoder_to_decoder(f) # [B, N_vis, C_d]
+                     for f in x_vis]
+            B, N_vis, C = x_vis[0].shape
+        else:
+            x_vis = self.encoder_to_decoder(x_vis)  # [B, N_vis, C_d]
+            B, N_vis, C = x_vis.shape
 
         # we don't unshuffle the correct visible token order,
         # but shuffle the pos embedding accorddingly.
@@ -380,11 +412,17 @@ class PretrainVisionTransformer(nn.Module):
         pos_emd_mask = expand_pos_embed[decode_vis].reshape(B, -1, C)
 
         # [B, N, C_d]
-        x_full = torch.cat(
-            [x_vis + pos_emd_vis, self.mask_token + pos_emd_mask], dim=1)
-        # NOTE: if N_mask==0, the shape of x is [B, N_mask, 3 * 16 * 16]
-        x = self.decoder(x_full, pos_emd_mask.shape[1])
-
+        # x_full = torch.cat(
+        #     [x_vis + pos_emd_vis, self.mask_token + pos_emd_mask], dim=1)
+        # # NOTE: if N_mask==0, the shape of x is [B, N_mask, 3 * 16 * 16]
+        # x = self.decoder(x_full, pos_emd_mask.shape[1])
+        if self.block_attn:
+            x_vis = [f + pos_emd_vis
+                     for f in x_vis]
+        else:
+            x_vis = x_vis + pos_emd_vis
+        dec_mask = self.mask_token + pos_emd_mask
+        x = self.decoder(x_vis,dec_mask)
         return x
 
 
