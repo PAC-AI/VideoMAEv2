@@ -76,9 +76,9 @@ def get_args():
         type=float,
         help='mask ratio of decoder')
     
-    parser.add_argument('--cross_attn',action='store_true',default=True,
+    parser.add_argument('--cross_attn',action='store_true',default=False,
                         help='Use Cross Attention in Decoder.')
-    parser.add_argument('--block_attn',action='store_true',default=True,
+    parser.add_argument('--block_attn',action='store_true',default=False,
                         help='User Block Attention in Decoder.')
 
     parser.add_argument(
@@ -216,10 +216,10 @@ def get_args():
     parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
-        default='/data/output/cross_attn_block_attn_b30',
+        default='/data/output/baseline_pt2',
         help='path where to save, empty for no saving')
     parser.add_argument(
-        '--log_dir', default='/data/output/cross_attn_block_attn_b30', help='path where to tensorboard log')
+        '--log_dir', default='/data/output/baseline_pt2', help='path where to tensorboard log')
     parser.add_argument(
         '--device',
         default='cuda',

@@ -263,7 +263,7 @@ class PretrainVisionTransformerDecoder(nn.Module):
             y = y.split(1,dim=-1)
             y = [f.squeeze(dim=-1)
                  for f in y]
-        else:
+        elif self.cross_attn:
             y = [y]*len(self.blocks)
         if self.cross_attn:
             for i,blk in enumerate(self.blocks):
@@ -278,6 +278,7 @@ class PretrainVisionTransformerDecoder(nn.Module):
                     x = cp.checkpoint(blk, x)
                 else:
                     x = blk(x)
+            x = x[:,y.shape[1]:]
 
         x = self.head(self.norm(x))
         return x
@@ -289,6 +290,8 @@ class PretrainVisionTransformer(nn.Module):
 
     def __init__(
         self,
+        pretrained_cfg=None,
+        pretrained_cfg_overlay=None,
         img_size=224,
         patch_size=16,
         encoder_in_chans=3,
@@ -392,6 +395,7 @@ class PretrainVisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {'pos_embed', 'cls_token', 'mask_token'}
 
+    @torch.compiler.disable()
     def forward(self, x, mask, decode_mask=None):
         decode_vis = mask if decode_mask is None else ~decode_mask
 

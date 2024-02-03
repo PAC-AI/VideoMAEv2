@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms
-from skvideo.io import FFmpegReader
+#from skvideo.io import FFmpegReader
 
 from .loader import get_image_loader, get_video_loader
 from .masking_generator import (
