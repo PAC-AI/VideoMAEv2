@@ -37,7 +37,7 @@ def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
     parser.add_argument('--use_wandb', action='store_true', default=True)
-    parser.add_argument('--batch_size', default=30, type=int)
+    parser.add_argument('--batch_size', default=48, type=int)
     parser.add_argument('--epochs', default=200, type=int)
     parser.add_argument('--save_ckpt_freq', default=1, type=int)
 
@@ -218,10 +218,10 @@ def get_args():
     parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
-        default='/data/output/baseline_flash_attn_pt2',
+        default='/data/output/baseline_flash_attn_pt2_new',
         help='path where to save, empty for no saving')
     parser.add_argument(
-        '--log_dir', default='/data/output/baseline_flash_attn_pt2', help='path where to tensorboard log')
+        '--log_dir', default='/data/output/baseline_flash_attn_pt2_new', help='path where to tensorboard log')
     parser.add_argument(
         '--device',
         default='cuda',
@@ -436,6 +436,9 @@ def main(args):
             data_loader_train.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch)
+        print(f'cross attention : {args.cross_attn}')
+        print(f'block attention : {args.block_attn}')
+        print(f'flash attention : {args.flash_attn}')
         train_stats = train_one_epoch(
             model,
             data_loader_train,
