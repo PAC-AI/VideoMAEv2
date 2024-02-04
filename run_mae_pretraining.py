@@ -80,6 +80,8 @@ def get_args():
                         help='Use Cross Attention in Decoder.')
     parser.add_argument('--block_attn',action='store_true',default=False,
                         help='User Block Attention in Decoder.')
+    parser.add_argument('--flash_attn',action='store_true',default=True,
+                        help='Use Flash Attention in all Transformer blocks.')
 
     parser.add_argument(
         '--input_size',
@@ -216,10 +218,10 @@ def get_args():
     parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
-        default='/data/output/baseline_pt2',
+        default='/data/output/baseline_flash_attn_pt2',
         help='path where to save, empty for no saving')
     parser.add_argument(
-        '--log_dir', default='/data/output/baseline_pt2', help='path where to tensorboard log')
+        '--log_dir', default='/data/output/baseline_flash_attn_pt2', help='path where to tensorboard log')
     parser.add_argument(
         '--device',
         default='cuda',
@@ -272,7 +274,8 @@ def get_model(args):
         decoder_depth=args.decoder_depth,
         with_cp=args.with_checkpoint,
         cross_attn=args.cross_attn,
-        block_attn=args.block_attn)
+        block_attn=args.block_attn,
+        flash_attn=args.flash_attn)
 
     if version.parse(torch.__version__) > version.parse('1.13.1'):
         torch.set_float32_matmul_precision('high')

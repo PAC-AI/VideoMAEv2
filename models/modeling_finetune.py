@@ -148,7 +148,8 @@ class Attention(nn.Module):
                  qk_scale=None,
                  attn_drop=0.,
                  proj_drop=0.,
-                 attn_head_dim=None):
+                 attn_head_dim=None,
+                 flash_attn=False):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -156,6 +157,7 @@ class Attention(nn.Module):
             head_dim = attn_head_dim
         all_head_dim = head_dim * self.num_heads
         self.scale = qk_scale or head_dim**-0.5
+        self.flash_attn = flash_attn
 
         self.qkv = nn.Linear(dim, all_head_dim * 3, bias=False)
         if qkv_bias:
@@ -182,13 +184,15 @@ class Attention(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[
             2]  # make torchscript happy (cannot use tensor as tuple)
 
-        q = q * self.scale
-        attn = (q @ k.transpose(-2, -1))
-
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, -1)
+        if self.flash_attn:
+            x = F.scaled_dot_product_attention(q,k,v)
+            x = x.transpose(1,2).reshape(B,N,-1)
+        else:
+            q = q * self.scale
+            attn = (q @ k.transpose(-2, -1))
+            attn = attn.softmax(dim=-1)
+            attn = self.attn_drop(attn)
+            x = (attn @ v).transpose(1, 2).reshape(B, N, -1)
 
         x = self.proj(x)
         x = self.proj_drop(x)
@@ -204,7 +208,8 @@ class CrossAttention(nn.Module):
                  qk_scale=None,
                  attn_drop=0.,
                  proj_drop=0.,
-                 attn_head_dim=None):
+                 attn_head_dim=None,
+                 flash_attn=False):
         super().__init__()
         self.num_heads = num_heads
         self.qkv_bias = qkv_bias
@@ -213,6 +218,7 @@ class CrossAttention(nn.Module):
             head_dim = attn_head_dim
         all_head_dim = head_dim * self.num_heads
         self.scale = qk_scale or head_dim**-0.5
+        self.flash_attn = flash_attn
 
         self.q = nn.Linear(dim,all_head_dim,bias=self.qkv_bias)
         self.kv = nn.Linear(dim,all_head_dim*2,bias=self.qkv_bias)
@@ -229,13 +235,15 @@ class CrossAttention(nn.Module):
         kv = self.kv(y).reshape(B,Ny,2,self.num_heads,-1).permute(2,0,3,1,4)
         k,v = kv[0],kv[1]
 
-        q = q * self.scale
-        attn = (q @ k.transpose(-2, -1))
-
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, -1)
+        if self.flash_attn:
+            x = F.scaled_dot_product_attention(q,k,v)
+            x = x.transpose(1,2).reshape(B,N,-1)
+        else:
+            q = q * self.scale
+            attn = (q @ k.transpose(-2, -1))
+            attn = attn.softmax(dim=-1)
+            attn = self.attn_drop(attn)
+            x = (attn @ v).transpose(1, 2).reshape(B, N, -1)
 
         x = self.proj(x)
         x = self.proj_drop(x)
@@ -257,7 +265,8 @@ class Block(nn.Module):
                  act_layer=nn.GELU,
                  norm_layer=nn.LayerNorm,
                  attn_head_dim=None,
-                 cos_attn=False):
+                 cos_attn=False,
+                 flash_attn=False):
         super().__init__()
         self.norm1 = norm_layer(dim)
         if cos_attn:
@@ -277,7 +286,8 @@ class Block(nn.Module):
                 qk_scale=qk_scale,
                 attn_drop=attn_drop,
                 proj_drop=drop,
-                attn_head_dim=attn_head_dim)
+                attn_head_dim=attn_head_dim,
+                flash_attn=flash_attn)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(
             drop_path) if drop_path > 0. else nn.Identity()
@@ -321,7 +331,8 @@ class CrossAttentionBlock(nn.Module):
                  init_values=None,
                  act_layer=nn.GELU,
                  norm_layer=nn.LayerNorm,
-                 attn_head_dim=None):
+                 attn_head_dim=None,
+                 flash_attn=False):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = CrossAttention(
@@ -331,7 +342,8 @@ class CrossAttentionBlock(nn.Module):
             qk_scale=qk_scale,
             attn_drop=attn_drop,
             proj_drop=drop,
-            attn_head_dim=attn_head_dim)
+            attn_head_dim=attn_head_dim,
+            flash_attn=flash_attn)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(
             drop_path) if drop_path > 0. else nn.Identity()

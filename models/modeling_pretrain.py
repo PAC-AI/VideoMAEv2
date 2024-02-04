@@ -51,7 +51,8 @@ class PretrainVisionTransformerEncoder(nn.Module):
                  with_cp=False,
                  all_frames=16,
                  cos_attn=False,
-                 block_attn=False):
+                 block_attn=False,
+                 flash_attn=False):
         super().__init__()
         self.block_attn = block_attn
         self.num_classes = num_classes
@@ -89,7 +90,8 @@ class PretrainVisionTransformerEncoder(nn.Module):
                 drop_path=dpr[i],
                 norm_layer=norm_layer,
                 init_values=init_values,
-                cos_attn=cos_attn) for i in range(depth)
+                cos_attn=cos_attn,
+                flash_attn=flash_attn) for i in range(depth)
         ])
         self.norm = norm_layer(embed_dim)
         self.head = nn.Linear(
@@ -181,7 +183,8 @@ class PretrainVisionTransformerDecoder(nn.Module):
                  with_cp=False,
                  cos_attn=False,
                  cross_attn=False,
-                 block_attn=False):
+                 block_attn=False,
+                 flash_attn=False):
         super().__init__()
         self.num_classes = num_classes
         assert num_classes == 3 * tubelet_size * patch_size**2
@@ -209,7 +212,8 @@ class PretrainVisionTransformerDecoder(nn.Module):
                     attn_drop=attn_drop_rate,
                     drop_path=dpr[i],
                     norm_layer=norm_layer,
-                    init_values=init_values) for i in range(depth)
+                    init_values=init_values,
+                    flash_attn=flash_attn) for i in range(depth)
             ])
         else:
             self.blocks = nn.ModuleList([
@@ -224,7 +228,8 @@ class PretrainVisionTransformerDecoder(nn.Module):
                     drop_path=dpr[i],
                     norm_layer=norm_layer,
                     init_values=init_values,
-                    cos_attn=cos_attn) for i in range(depth)
+                    cos_attn=cos_attn,
+                    flash_attn=flash_attn) for i in range(depth)
             ])
         self.norm = norm_layer(embed_dim)
         self.head = nn.Linear(
@@ -319,7 +324,8 @@ class PretrainVisionTransformer(nn.Module):
         all_frames=16,
         cos_attn=False,
         cross_attn=False,
-        block_attn=False
+        block_attn=False,
+        flash_attn=False,
     ):
         super().__init__()
         self.encoder = PretrainVisionTransformerEncoder(
@@ -343,7 +349,8 @@ class PretrainVisionTransformer(nn.Module):
             with_cp=with_cp,
             all_frames=all_frames,
             cos_attn=cos_attn,
-            block_attn=block_attn)
+            block_attn=block_attn,
+            flash_attn=flash_attn)
 
         self.decoder = PretrainVisionTransformerDecoder(
             patch_size=patch_size,
@@ -365,7 +372,8 @@ class PretrainVisionTransformer(nn.Module):
             with_cp=with_cp,
             cos_attn=cos_attn,
             cross_attn=cross_attn,
-            block_attn=block_attn)
+            block_attn=block_attn,
+            flash_attn=flash_attn)
         
         self.block_attn = block_attn
 
