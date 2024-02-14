@@ -269,38 +269,49 @@ def save_on_master(*args, **kwargs):
 
 
 def init_distributed_mode(args):
-    if args.dist_on_itp:
-        args.rank = int(os.environ['OMPI_COMM_WORLD_RANK'])
-        args.world_size = int(os.environ['OMPI_COMM_WORLD_SIZE'])
-        args.gpu = int(os.environ['OMPI_COMM_WORLD_LOCAL_RANK'])
-        args.dist_url = "tcp://%s:%s" % (os.environ['MASTER_ADDR'],
-                                         os.environ['MASTER_PORT'])
-        os.environ['LOCAL_RANK'] = str(args.gpu)
-        os.environ['RANK'] = str(args.rank)
-        os.environ['WORLD_SIZE'] = str(args.world_size)
-        # ["RANK", "WORLD_SIZE", "MASTER_ADDR", "MASTER_PORT", "LOCAL_RANK"]
-    elif 'SLURM_PROCID' in os.environ:
-        args.rank = int(os.environ['SLURM_PROCID'])
-        args.gpu = int(os.environ['SLURM_LOCALID'])
-        args.world_size = int(os.environ['SLURM_NTASKS'])
-        os.environ['RANK'] = str(args.rank)
-        os.environ['LOCAL_RANK'] = str(args.gpu)
-        os.environ['WORLD_SIZE'] = str(args.world_size)
+    # if args.dist_on_itp:
+    #     args.rank = int(os.environ['OMPI_COMM_WORLD_RANK'])
+    #     args.world_size = int(os.environ['OMPI_COMM_WORLD_SIZE'])
+    #     args.gpu = int(os.environ['OMPI_COMM_WORLD_LOCAL_RANK'])
+    #     args.dist_url = "tcp://%s:%s" % (os.environ['MASTER_ADDR'],
+    #                                      os.environ['MASTER_PORT'])
+    #     os.environ['LOCAL_RANK'] = str(args.gpu)
+    #     os.environ['RANK'] = str(args.rank)
+    #     os.environ['WORLD_SIZE'] = str(args.world_size)
+    #     # ["RANK", "WORLD_SIZE", "MASTER_ADDR", "MASTER_PORT", "LOCAL_RANK"]
+    # elif 'SLURM_PROCID' in os.environ:
+    #     args.rank = int(os.environ['SLURM_PROCID'])
+    #     args.gpu = int(os.environ['SLURM_LOCALID'])
+    #     args.world_size = int(os.environ['SLURM_NTASKS'])
+    #     os.environ['RANK'] = str(args.rank)
+    #     os.environ['LOCAL_RANK'] = str(args.gpu)
+    #     os.environ['WORLD_SIZE'] = str(args.world_size)
 
-        node_list = os.environ['SLURM_NODELIST']
-        addr = subprocess.getoutput(
-            f'scontrol show hostname {node_list} | head -n1')
-        if 'MASTER_ADDR' not in os.environ:
-            os.environ['MASTER_ADDR'] = addr
-    elif 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
-        args.rank = int(os.environ["RANK"])
-        args.world_size = int(os.environ['WORLD_SIZE'])
-        args.gpu = int(os.environ['LOCAL_RANK'])
-    else:
-        print('Not using distributed mode')
+    #     node_list = os.environ['SLURM_NODELIST']
+    #     addr = subprocess.getoutput(
+    #         f'scontrol show hostname {node_list} | head -n1')
+    #     if 'MASTER_ADDR' not in os.environ:
+    #         os.environ['MASTER_ADDR'] = 'localhost'
+    #     if 'MASTER_PORT' not in os.environ:
+    #         os.environ['MASTER_PORT'] = '45321'
+    # elif 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+    #     args.rank = int(os.environ["RANK"])
+    #     args.world_size = int(os.environ['WORLD_SIZE'])
+    #     args.gpu = int(os.environ['LOCAL_RANK'])
+    # else:
+    #     print('Not using distributed mode')
+    #     args.distributed = False
+    #     return
+
+    if 'LOCAL_RANK' not in os.environ:
         args.distributed = False
         return
-
+    args.rank = int(os.environ['LOCAL_RANK'])
+    args.gpu = int(os.environ['LOCAL_RANK'])
+    args.world_size = int(os.environ['WORLD_SIZE'])
+    if args.world_size == 1:
+        args.distributed = False
+        return
     args.distributed = True
 
     torch.cuda.set_device(args.gpu)

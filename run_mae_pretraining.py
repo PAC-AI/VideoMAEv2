@@ -37,14 +37,14 @@ def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
     parser.add_argument('--use_wandb', action='store_true', default=True)
-    parser.add_argument('--batch_size', default=28, type=int)
-    parser.add_argument('--epochs', default=200, type=int)
+    parser.add_argument('--batch_size', default=6, type=int)
+    parser.add_argument('--epochs', default=300, type=int)
     parser.add_argument('--save_ckpt_freq', default=1, type=int)
 
     # Model parameters
     parser.add_argument(
         '--model',
-        default='pretrain_videomae_base_patch16_224',
+        default='pretrain_videomae_giant_patch14_224', # 'pretrain_videomae_base_patch16_224',
         type=str,
         metavar='MODEL',
         help='Name of model to train')
@@ -144,7 +144,7 @@ def get_args():
     parser.add_argument(
         '--lr',
         type=float,
-        default=1e-3,
+        default=6e-4,
         metavar='LR',
         help='learning rate (default: 1.5e-4)')
     parser.add_argument(
@@ -163,7 +163,7 @@ def get_args():
     parser.add_argument(
         '--warmup_epochs',
         type=int,
-        default=20,
+        default=30,
         metavar='N',
         help='epochs to warmup LR, if scheduler supports')
     parser.add_argument(
@@ -189,16 +189,20 @@ def get_args():
 
     # * Finetuning params
     parser.add_argument(
-        '--finetune', default='', help='finetune from checkpoint')
+        '--finetune',
+        default='',
+        # default='/home/shrik/data/VideoMAEv2/vit_g_hybrid_pt_1200e.pth', 
+        help='finetune from checkpoint')
 
     # Dataset parameters
     parser.add_argument(
         '--data_path',
-        default='/data/clips.txt',
+        default='/home/shrik/data/VideoMAEv2/videos.txt',
         type=str,
         help='dataset path')
     parser.add_argument(
-        '--data_root', default='/data/icu', type=str, help='dataset path root')
+        '--data_root', default='/home/shrik/data/frailty',
+          type=str, help='dataset path root')
     parser.add_argument(
         '--fname_tmpl',
         default='img_{:05}.jpg',
@@ -207,14 +211,16 @@ def get_args():
     parser.add_argument(
         '--imagenet_default_mean_and_std', default=True, action='store_true')
     parser.add_argument('--num_frames', type=int, default=16)
-    parser.add_argument('--sampling_rate', type=int, default=5)
+    parser.add_argument('--sampling_rate', type=int, default=4)
     parser.add_argument('--num_sample', type=int, default=4)
     parser.add_argument(
         '--output_dir',
-        default='/data/output/VideoMAEv2_base',
+        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_giant_pret',
         help='path where to save, empty for no saving')
     parser.add_argument(
-        '--log_dir', default='/data/output/vit_b_hybrid_pt_800e', help='path where to tensorboard log')
+        '--log_dir', 
+        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_giant_pret',
+        help='path where to tensorboard log')
     parser.add_argument(
         '--device',
         default='cuda',
@@ -228,7 +234,7 @@ def get_args():
 
     parser.add_argument(
         '--start_epoch', default=0, type=int, metavar='N', help='start epoch')
-    parser.add_argument('--num_workers', default=8, type=int)
+    parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument(
         '--pin_mem',
         action='store_true',
@@ -283,7 +289,7 @@ def main(args):
 
     if args.use_wandb:
         run_name = args.output_dir.split('/')[-1]
-        wandb.init(project='ClinicalMAE', 
+        wandb.init(project='Frailty', 
                    entity='cerc-pac', 
                    config=args, 
                    name=run_name)
