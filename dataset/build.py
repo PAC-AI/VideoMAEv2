@@ -31,7 +31,32 @@ def build_pretraining_dataset(args):
         transform=transform,
         temporal_jitter=False,
         lazy_init=False,
-        num_sample=args.num_sample)
+        num_sample=args.num_sample,
+        labels_f=args.train_labels_f if args.bin_cls else None)
+    print("Data Aug = %s" % str(transform))
+    return dataset
+
+
+def build_val_dataset(args):
+    transform = DataAugmentationForVideoMAEv2(args)
+    dataset = VideoMAE(
+        root=args.data_root,
+        setting=args.val_data_path,
+        train=True,
+        test_mode=False,
+        name_pattern=args.fname_tmpl,
+        video_ext='mp4',
+        is_color=True,
+        modality='rgb',
+        num_segments=1,
+        num_crop=1,
+        new_length=args.num_frames,
+        new_step=args.sampling_rate,
+        transform=transform,
+        temporal_jitter=False,
+        lazy_init=False,
+        num_sample=args.num_sample,
+        labels_f=args.val_labels_f if args.bin_cls else None)
     print("Data Aug = %s" % str(transform))
     return dataset
 

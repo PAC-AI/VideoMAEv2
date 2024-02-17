@@ -1,5 +1,7 @@
 import os
 import random
+import csv
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -27,9 +29,11 @@ class DataAugmentationForVideoMAEv2(object):
         self.input_std = [0.229, 0.224, 0.225]
         div = True
         roll = False
+        self.no_mask = args.bin_cls
         normalize = GroupNormalize(self.input_mean, self.input_std)
         self.train_augmentation = GroupMultiScaleCrop(args.input_size,
-                                                      [1, .875, .75, .66])
+                                                      [1, .875, .75, .66],
+                                                      resize_only=args.bin_cls)
         self.transform = transforms.Compose([
             self.train_augmentation,
             Stack(roll=roll),
@@ -57,6 +61,9 @@ class DataAugmentationForVideoMAEv2(object):
             decoder_mask_map = self.decoder_mask_map_generator()
         else:
             decoder_mask_map = 1 - encoder_mask_map
+        if self.no_mask:
+            encoder_mask_map.fill(0)
+            decoder_mask_map.fill(0)
         return process_data, encoder_mask_map, decoder_mask_map
 
     def __repr__(self):
@@ -392,7 +399,8 @@ class VideoMAE(torch.utils.data.Dataset):
                  transform=None,
                  temporal_jitter=False,
                  lazy_init=False,
-                 num_sample=1):
+                 num_sample=1,
+                 labels_f=None):
 
         super(VideoMAE, self).__init__()
         self.root = root
@@ -413,6 +421,12 @@ class VideoMAE(torch.utils.data.Dataset):
         self.lazy_init = lazy_init
         self.num_sample = num_sample
 
+        if labels_f is not None:
+            self.labels = {row['patient_f'] : float(row['is_frail'])
+                           for row in csv.DictReader(open(labels_f))}
+        else:
+            self.labels = defaultdict(None)
+
         self.video_loader = get_video_loader()
         self.image_loader = get_image_loader()
 
@@ -426,27 +440,6 @@ class VideoMAE(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         try:
-            # video_name,_,_ = self.clips[index]
-            # nframes = self.new_length
-            # stride = self.new_step
-            # reader = FFmpegReader(video_name)
-            # total_frames = sum(1 for f in reader.nextFrame())
-            # reader.close()
-            # if total_frames < nframes*stride*2:
-            #     print(f'{video_name} total frames < {nframes*stride*2}')
-            #     open('/data/short_clips.txt','a').write(video_name+'\n')
-            #     index = random.randint(0, len(self.clips) - 1)
-            #     return self.__getitem__(index)
-            # beg_i = random.randint(0, total_frames - nframes*stride)
-            # frame_ids = set(range(beg_i,beg_i+nframes*stride,stride))
-            # reader = FFmpegReader(video_name)
-            # images = list()
-            # for i,f in enumerate(reader.nextFrame()):
-            #     if i in frame_ids:
-            #         images.append(Image.fromarray(f))
-            #         if len(images) >= nframes:
-            #             break
-            # reader.close()
             video_name, start_idx, total_frame = self.clips[index]
             if total_frame < 0:  # load video
                 decord_vr = self.video_loader(video_name)
@@ -497,7 +490,7 @@ class VideoMAE(torch.utils.data.Dataset):
                 process_data_list.append(process_data)
                 encoder_mask_list.append(encoder_mask)
                 decoder_mask_list.append(decoder_mask)
-            return process_data_list, encoder_mask_list, decoder_mask_list
+            return process_data_list, encoder_mask_list, decoder_mask_list, self.labels[video_name]
         else:
             process_data, encoder_mask, decoder_mask = self.transform(
                 (images, None))
@@ -505,7 +498,7 @@ class VideoMAE(torch.utils.data.Dataset):
             process_data = process_data.view(
                 (self.new_length, 3) + process_data.size()[-2:]).transpose(
                     0, 1)
-            return process_data, encoder_mask, decoder_mask
+            return process_data, encoder_mask, decoder_mask, self.labels[video_name]
 
     def __len__(self):
         return len(self.clips)

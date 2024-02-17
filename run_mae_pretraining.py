@@ -26,8 +26,8 @@ from tqdm import tqdm
 # NOTE: Do not comment `import models`, it is used to register models
 import models  # noqa: F401
 import utils
-from dataset import build_pretraining_dataset
-from engine_for_pretraining import train_one_epoch
+from dataset import build_pretraining_dataset,build_val_dataset
+from engine_for_pretraining import train_one_epoch,val_one_epoch
 from optim_factory import create_optimizer
 from utils import NativeScalerWithGradNormCount as NativeScaler
 from utils import multiple_pretrain_samples_collate
@@ -37,9 +37,11 @@ def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
     parser.add_argument('--use_wandb', action='store_true', default=True)
-    parser.add_argument('--batch_size', default=6, type=int)
+    
+    parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--epochs', default=300, type=int)
     parser.add_argument('--save_ckpt_freq', default=1, type=int)
+    parser.add_argument('--bin_cls',action='store_true',default=True)
 
     # Model parameters
     parser.add_argument(
@@ -190,16 +192,34 @@ def get_args():
     # * Finetuning params
     parser.add_argument(
         '--finetune',
-        default='',
+        # default='',
         # default='/home/shrik/data/VideoMAEv2/vit_g_hybrid_pt_1200e.pth', 
+        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_giant_pret/checkpoint-135.pth',
         help='finetune from checkpoint')
 
     # Dataset parameters
     parser.add_argument(
         '--data_path',
-        default='/home/shrik/data/VideoMAEv2/videos.txt',
+        default='/home/shrik/data/VideoMAEv2/videos_ft_train_70_30.txt',
         type=str,
         help='dataset path')
+    parser.add_argument(
+        '--val_data_path',
+        default='/home/shrik/data/VideoMAEv2/videos_ft_val_70_30.txt',
+        type=str,
+        help='val dataset path')
+    parser.add_argument(
+        '--train_labels_f',
+        default='/home/shrik/data/frailty/labels_train_70_30.csv',
+        type=str,
+        help='train labels'
+    )
+    parser.add_argument(
+        '--val_labels_f',
+        default='/home/shrik/data/frailty/labels_val_70_30.csv',
+        type=str,
+        help='val labels'
+    )
     parser.add_argument(
         '--data_root', default='/home/shrik/data/frailty',
           type=str, help='dataset path root')
@@ -212,14 +232,14 @@ def get_args():
         '--imagenet_default_mean_and_std', default=True, action='store_true')
     parser.add_argument('--num_frames', type=int, default=16)
     parser.add_argument('--sampling_rate', type=int, default=4)
-    parser.add_argument('--num_sample', type=int, default=4)
+    parser.add_argument('--num_sample', type=int, default=1)
     parser.add_argument(
         '--output_dir',
-        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_giant_pret',
+        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_g_pt_ft_tv7030',
         help='path where to save, empty for no saving')
     parser.add_argument(
         '--log_dir', 
-        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_giant_pret',
+        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_g_pt_ft_tv7030',
         help='path where to tensorboard log')
     parser.add_argument(
         '--device',
@@ -234,7 +254,7 @@ def get_args():
 
     parser.add_argument(
         '--start_epoch', default=0, type=int, metavar='N', help='start epoch')
-    parser.add_argument('--num_workers', default=4, type=int)
+    parser.add_argument('--num_workers', default=1, type=int)
     parser.add_argument(
         '--pin_mem',
         action='store_true',
@@ -266,6 +286,8 @@ def get_model(args):
     model = create_model(
         args.model,
         pretrained=False,
+        bin_cls=args.bin_cls,
+        encoder_num_classes=1 if args.bin_cls else 0,
         drop_path_rate=args.drop_path,
         drop_block_rate=None,
         all_frames=args.num_frames,
@@ -312,6 +334,9 @@ def main(args):
     # get dataset
     dataset_train = build_pretraining_dataset(args)
 
+    if args.bin_cls:
+        dataset_val = build_val_dataset(args)
+
     num_tasks = utils.get_world_size()
     global_rank = utils.get_rank()
     sampler_rank = global_rank
@@ -340,11 +365,19 @@ def main(args):
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
-        drop_last=True,
+        drop_last=False,
         collate_fn=collate_func,
         worker_init_fn=utils.seed_worker,
         prefetch_factor=1,
         persistent_workers=True)
+    
+    if args.bin_cls:
+        data_loader_val = torch.utils.data.DataLoader(
+            dataset_val,
+            batch_size=args.batch_size,
+            num_workers=0,
+            drop_last=False,
+            collate_fn=collate_func)
     
     ##########################################
     # import time
@@ -446,7 +479,8 @@ def main(args):
             wd_schedule_values=wd_schedule_values,
             patch_size=patch_size[0],
             normlize_target=args.normlize_target,
-            use_wandb=args.use_wandb)
+            use_wandb=args.use_wandb,
+            bin_cls=args.bin_cls)
         if args.output_dir:
             _epoch = epoch + 1
             if _epoch % args.save_ckpt_freq == 0 or _epoch == args.epochs:
@@ -457,7 +491,14 @@ def main(args):
                     optimizer=optimizer,
                     loss_scaler=loss_scaler,
                     epoch=epoch)
-
+        
+        val_one_epoch(model,
+                      data_loader_val,
+                      device,
+                      epoch,
+                      step=epoch*num_training_steps_per_epoch,
+                      use_wandb=args.use_wandb)
+                
         log_stats = {
             **{f'train_{k}': v
                for k, v in train_stats.items()}, 'epoch': epoch,

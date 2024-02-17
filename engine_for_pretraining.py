@@ -9,7 +9,10 @@ import math
 import sys
 from typing import Iterable
 
+import numpy as np
 import torch
+import torch.nn.functional as F
+from torcheval.metrics.functional import binary_accuracy
 from einops import rearrange
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 import wandb
@@ -32,7 +35,8 @@ def train_one_epoch(model: torch.nn.Module,
                     start_steps=None,
                     lr_schedule_values=None,
                     wd_schedule_values=None,
-                    use_wandb=False):
+                    use_wandb=False,
+                    bin_cls=False):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter(
@@ -42,7 +46,7 @@ def train_one_epoch(model: torch.nn.Module,
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 5
 
-    for step,batch in enumerate(tqdm(data_loader,desc=f'epoch {epoch}')):
+    for step,batch in enumerate(tqdm(data_loader,desc=f'train epoch {epoch}')):
     # for step, batch in enumerate(
     #         metric_logger.log_every(data_loader, print_freq, header)):
         # assign learning rate & weight decay for each step
@@ -59,13 +63,14 @@ def train_one_epoch(model: torch.nn.Module,
         # NOTE: When the decoder mask ratio is 0,
         # in other words, when decoder masking is not used,
         # decode_masked_pos = ~bool_masked_pos
-        images, bool_masked_pos, decode_masked_pos = batch
+        images, bool_masked_pos, decode_masked_pos, labels_bin = batch
 
         images = images.to(device, non_blocking=True)
         bool_masked_pos = bool_masked_pos.to(
             device, non_blocking=True).flatten(1).to(torch.bool)
         decode_masked_pos = decode_masked_pos.to(
             device, non_blocking=True).flatten(1).to(torch.bool)
+        labels_bin = labels_bin.to(device,non_blocking=True)
 
         with torch.no_grad():
             # calculate the predict label
@@ -110,11 +115,16 @@ def train_one_epoch(model: torch.nn.Module,
         else:
             with torch.cuda.amp.autocast():
                 outputs = model(images, bool_masked_pos, decode_masked_pos)
-                loss = (outputs - labels)**2
-                loss = loss.mean(dim=-1)
-                cal_loss_mask = bool_masked_pos[~decode_masked_pos].reshape(
-                    B, -1)
-                loss = (loss * cal_loss_mask).sum() / cal_loss_mask.sum()
+                if bin_cls:
+                    probs = torch.sigmoid(outputs)
+                    loss = F.binary_cross_entropy_with_logits(outputs,labels_bin)
+                    acc = binary_accuracy(probs,labels_bin)
+                else:
+                    loss = (outputs - labels)**2
+                    loss = loss.mean(dim=-1)
+                    cal_loss_mask = bool_masked_pos[~decode_masked_pos].reshape(
+                        B, -1)
+                    loss = (loss * cal_loss_mask).sum() / cal_loss_mask.sum()
 
         loss_value = loss.item()
 
@@ -166,7 +176,8 @@ def train_one_epoch(model: torch.nn.Module,
 
         if use_wandb:
             wandb.log({'epoch'      : epoch,
-                       'loss'       : loss_value,
+                       'train_loss' : loss_value,
+                       'train_acc'  : acc.item(),
                        'loss_scale' : loss_scale_value,
                        'max_lr'     : max_lr,
                        'min_lr'     : min_lr,
@@ -190,3 +201,51 @@ def train_one_epoch(model: torch.nn.Module,
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+
+def val_one_epoch(model: torch.nn.Module,
+                  data_loader: Iterable,
+                  device: torch.device,
+                  epoch: int,
+                  step: int,
+                  use_wandb=False):
+    model.eval()
+    labels = list()
+    probs = list()
+    loss = list()
+    acc = list()
+    for step,batch in enumerate(tqdm(data_loader,desc=f'val epoch {epoch}')):
+        images, bool_masked_pos, decode_masked_pos, labels_bin = batch
+
+        images = images.to(device, non_blocking=True)
+        bool_masked_pos = bool_masked_pos.to(
+            device, non_blocking=True).flatten(1).to(torch.bool)
+        decode_masked_pos = decode_masked_pos.to(
+            device, non_blocking=True).flatten(1).to(torch.bool)
+        labels_bin = labels_bin.to(device,non_blocking=True)
+        labels.append(labels_bin)
+
+        with torch.cuda.amp.autocast(), torch.no_grad():
+            outputs = model(images, bool_masked_pos, decode_masked_pos)
+            prob = torch.sigmoid(outputs)
+            probs.append(prob)
+            loss.append(F.binary_cross_entropy_with_logits(outputs,labels_bin))
+            acc.append(binary_accuracy(prob,labels_bin))
+    labels = torch.cat(labels).cpu().numpy()
+    probs = torch.cat(probs).cpu().numpy()
+    loss = torch.stack(loss).cpu().numpy()
+    acc = torch.stack(acc).cpu().numpy()
+    probs = np.stack([1-probs,probs],axis=1)
+
+    if use_wandb:
+        wandb.log({'val_loss' : loss.mean(),
+                   'val_acc'  : acc.mean(),
+                   'val_pr'   : wandb.plot.pr_curve(y_true=labels,
+                                                    y_probas=probs,
+                                                    labels=['NF','F']),
+                   'val_roc'  : wandb.plot.roc_curve(y_true=labels,
+                                                     y_probas=probs,
+                                                     labels=['NF','F']),
+                   'val_cm'   : wandb.plot.confusion_matrix(y_true=labels,
+                                                            preds=probs[:,1]>=0.5,
+                                                            class_names=['NF','F'])})

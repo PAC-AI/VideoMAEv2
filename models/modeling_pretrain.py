@@ -268,6 +268,7 @@ class PretrainVisionTransformer(nn.Module):
         with_cp=False,
         all_frames=16,
         cos_attn=False,
+        bin_cls=False,
     ):
         super().__init__()
         self.encoder = PretrainVisionTransformerEncoder(
@@ -292,34 +293,39 @@ class PretrainVisionTransformer(nn.Module):
             all_frames=all_frames,
             cos_attn=cos_attn)
 
-        self.decoder = PretrainVisionTransformerDecoder(
-            patch_size=patch_size,
-            num_patches=self.encoder.patch_embed.num_patches,
-            num_classes=decoder_num_classes,
-            embed_dim=decoder_embed_dim,
-            depth=decoder_depth,
-            num_heads=decoder_num_heads,
-            mlp_ratio=mlp_ratio,
-            qkv_bias=qkv_bias,
-            qk_scale=qk_scale,
-            drop_rate=drop_rate,
-            attn_drop_rate=attn_drop_rate,
-            drop_path_rate=drop_path_rate,
-            norm_layer=norm_layer,
-            init_values=init_values,
-            tubelet_size=tubelet_size,
-            with_cp=with_cp,
-            cos_attn=cos_attn)
+        self.bin_cls = bin_cls
+        if bin_cls:
+            n_patches = (all_frames//tubelet_size)*(img_size//patch_size)**2
+            self.head = nn.Linear(n_patches,1,bias=False)
+        else:
+            self.decoder = PretrainVisionTransformerDecoder(
+                patch_size=patch_size,
+                num_patches=self.encoder.patch_embed.num_patches,
+                num_classes=decoder_num_classes,
+                embed_dim=decoder_embed_dim,
+                depth=decoder_depth,
+                num_heads=decoder_num_heads,
+                mlp_ratio=mlp_ratio,
+                qkv_bias=qkv_bias,
+                qk_scale=qk_scale,
+                drop_rate=drop_rate,
+                attn_drop_rate=attn_drop_rate,
+                drop_path_rate=drop_path_rate,
+                norm_layer=norm_layer,
+                init_values=init_values,
+                tubelet_size=tubelet_size,
+                with_cp=with_cp,
+                cos_attn=cos_attn)
+            
+            self.encoder_to_decoder = nn.Linear(
+                encoder_embed_dim, decoder_embed_dim, bias=False)
 
-        self.encoder_to_decoder = nn.Linear(
-            encoder_embed_dim, decoder_embed_dim, bias=False)
+            self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_embed_dim))
 
-        self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_embed_dim))
+            self.pos_embed = get_sinusoid_encoding_table(
+                self.encoder.patch_embed.num_patches, decoder_embed_dim)
 
-        self.pos_embed = get_sinusoid_encoding_table(
-            self.encoder.patch_embed.num_patches, decoder_embed_dim)
-
-        trunc_normal_(self.mask_token, std=.02)
+            trunc_normal_(self.mask_token, std=.02)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -341,6 +347,11 @@ class PretrainVisionTransformer(nn.Module):
         decode_vis = mask if decode_mask is None else ~decode_mask
 
         x_vis = self.encoder(x, mask)  # [B, N_vis, C_e]
+        if self.bin_cls:
+            x_vis = x_vis.squeeze(dim=-1) # [B,N_vis]
+            x_vis = self.head(x_vis) # [B,1]
+            x_vis = x_vis.squeeze(dim=-1) # [B]
+            return x_vis
         x_vis = self.encoder_to_decoder(x_vis)  # [B, N_vis, C_d]
         B, N_vis, C = x_vis.shape
 
@@ -460,7 +471,7 @@ def pretrain_videomae_giant_patch14_224(pretrained=False, **kwargs):
         encoder_embed_dim=1408,
         encoder_depth=40,
         encoder_num_heads=16,
-        encoder_num_classes=0,
+        # encoder_num_classes=0,
         decoder_num_classes=1176,  # 14 * 14 * 3 * 2,
         decoder_embed_dim=512,
         decoder_num_heads=8,

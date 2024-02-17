@@ -397,11 +397,13 @@ class GroupMultiScaleCrop(object):
                  scales=None,
                  max_distort=1,
                  fix_crop=True,
-                 more_fix_crop=True):
+                 more_fix_crop=True,
+                 resize_only=False):
         self.scales = scales if scales is not None else [1, .875, .75, .66]
         self.max_distort = max_distort
         self.fix_crop = fix_crop
         self.more_fix_crop = more_fix_crop
+        self.resize_only = resize_only
         self.input_size = input_size if not isinstance(input_size, int) else [
             input_size, input_size
         ]
@@ -411,18 +413,18 @@ class GroupMultiScaleCrop(object):
         img_group, label = img_tuple
 
         im_size = img_group[0].size
-
-        crop_w, crop_h, offset_w, offset_h = self._sample_crop_size(im_size)
-        crop_img_group = [
-            img.crop(
-                (offset_w, offset_h, offset_w + crop_w, offset_h + crop_h))
-            for img in img_group
-        ]
-        ret_img_group = [
+        if not self.resize_only:
+            crop_w, crop_h, offset_w, offset_h = self._sample_crop_size(im_size)
+            img_group = [
+                img.crop(
+                    (offset_w, offset_h, offset_w + crop_w, offset_h + crop_h))
+                for img in img_group
+            ]
+        img_group = [
             img.resize((self.input_size[0], self.input_size[1]),
-                       self.interpolation) for img in crop_img_group
+                       self.interpolation) for img in img_group
         ]
-        return (ret_img_group, label)
+        return (img_group, label)
 
     def _sample_crop_size(self, im_size):
         image_w, image_h = im_size[0], im_size[1]
