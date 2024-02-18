@@ -29,18 +29,18 @@ set -o errexit
 ##################### USE THIS ON CARINA #########################
 # source /home/shrik/.bashrc
 # source activate videomae
-# set -o xtrace
-# cd /home/shrik/VideoMAEv2
-# export WANDB__SERVICE_WAIT=300
-# export OMP_NUM_THREADS=2
-# torchrun \
-# 	--standalone \
-# 	--nproc_per_node 4 \
-# 	--nnodes 1 \
-# 	run_mae_pretraining.py
-
 set -o xtrace
 cd /home/shrik/VideoMAEv2
 export WANDB__SERVICE_WAIT=300
 export OMP_NUM_THREADS=2
-python run_mae_pretraining.py
+torchrun \
+	--standalone \
+	--nproc_per_node 4 \
+	--nnodes 1 \
+	run_mae_pretraining.py
+
+# set -o xtrace
+# cd /home/shrik/VideoMAEv2
+# export WANDB__SERVICE_WAIT=300
+# export OMP_NUM_THREADS=2
+# python run_mae_pretraining.py

@@ -38,10 +38,11 @@ def get_args():
         'VideoMAE v2 pre-training script', add_help=False)
     parser.add_argument('--use_wandb', action='store_true', default=True)
     
-    parser.add_argument('--batch_size', default=8, type=int)
+    parser.add_argument('--batch_size', default=6, type=int)
     parser.add_argument('--epochs', default=300, type=int)
     parser.add_argument('--save_ckpt_freq', default=1, type=int)
     parser.add_argument('--bin_cls',action='store_true',default=True)
+    parser.add_argument('--cls_wt_scale',default=4,type=float)
 
     # Model parameters
     parser.add_argument(
@@ -235,11 +236,11 @@ def get_args():
     parser.add_argument('--num_sample', type=int, default=1)
     parser.add_argument(
         '--output_dir',
-        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_g_pt_ft_tv7030',
+        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_g_pt_ft_ls_tv7030',
         help='path where to save, empty for no saving')
     parser.add_argument(
         '--log_dir', 
-        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_g_pt_ft_tv7030',
+        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_g_pt_ft_ls_tv7030',
         help='path where to tensorboard log')
     parser.add_argument(
         '--device',
@@ -254,7 +255,7 @@ def get_args():
 
     parser.add_argument(
         '--start_epoch', default=0, type=int, metavar='N', help='start epoch')
-    parser.add_argument('--num_workers', default=1, type=int)
+    parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument(
         '--pin_mem',
         action='store_true',
@@ -347,6 +348,9 @@ def main(args):
     sampler_train = torch.utils.data.DistributedSampler(
         dataset_train, num_replicas=num_tasks, rank=sampler_rank, shuffle=True)
     # print("Sampler_train = %s" % str(sampler_train))
+    if args.bin_cls:
+        sampler_val = torch.utils.data.DistributedSampler(
+            dataset_val, num_replicas=num_tasks, rank=sampler_rank, shuffle=False)
 
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
@@ -374,9 +378,13 @@ def main(args):
     if args.bin_cls:
         data_loader_val = torch.utils.data.DataLoader(
             dataset_val,
+            sampler=sampler_val,
             batch_size=args.batch_size,
-            num_workers=0,
+            num_workers=args.num_workers,
             drop_last=False,
+            worker_init_fn=utils.seed_worker,
+            pin_memory=args.pin_mem,
+            prefetch_factor=1,
             collate_fn=collate_func)
     
     ##########################################
@@ -480,7 +488,9 @@ def main(args):
             patch_size=patch_size[0],
             normlize_target=args.normlize_target,
             use_wandb=args.use_wandb,
-            bin_cls=args.bin_cls)
+            bin_cls=args.bin_cls,
+            cls_wt_scale=args.cls_wt_scale,
+            global_rank=global_rank)
         if args.output_dir:
             _epoch = epoch + 1
             if _epoch % args.save_ckpt_freq == 0 or _epoch == args.epochs:
@@ -496,8 +506,9 @@ def main(args):
                       data_loader_val,
                       device,
                       epoch,
-                      step=epoch*num_training_steps_per_epoch,
-                      use_wandb=args.use_wandb)
+                      use_wandb=args.use_wandb,
+                      cls_wt_scale=args.cls_wt_scale,
+                      global_rank=global_rank)
                 
         log_stats = {
             **{f'train_{k}': v

@@ -10,6 +10,19 @@ import sys
 from typing import Iterable
 
 import numpy as np
+from sklearn.metrics import (accuracy_score,
+                             balanced_accuracy_score,
+                             average_precision_score,
+                             f1_score,
+                             precision_score,
+                             recall_score,
+                             roc_auc_score,
+                             precision_recall_curve,
+                             roc_curve,
+                             confusion_matrix)
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
 import torch
 import torch.nn.functional as F
 from torcheval.metrics.functional import binary_accuracy
@@ -36,7 +49,9 @@ def train_one_epoch(model: torch.nn.Module,
                     lr_schedule_values=None,
                     wd_schedule_values=None,
                     use_wandb=False,
-                    bin_cls=False):
+                    bin_cls=False,
+                    cls_wt_scale=1,
+                    global_rank=0):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter(
@@ -71,6 +86,8 @@ def train_one_epoch(model: torch.nn.Module,
         decode_masked_pos = decode_masked_pos.to(
             device, non_blocking=True).flatten(1).to(torch.bool)
         labels_bin = labels_bin.to(device,non_blocking=True)
+        labels_bin_wt = (labels_bin*cls_wt_scale)+((1-labels_bin)*1)
+        # labels_bin_wt /= cls_wt_scale+1
 
         with torch.no_grad():
             # calculate the predict label
@@ -117,7 +134,8 @@ def train_one_epoch(model: torch.nn.Module,
                 outputs = model(images, bool_masked_pos, decode_masked_pos)
                 if bin_cls:
                     probs = torch.sigmoid(outputs)
-                    loss = F.binary_cross_entropy_with_logits(outputs,labels_bin)
+                    loss = F.binary_cross_entropy_with_logits(outputs,labels_bin,
+                                                              weight=labels_bin_wt)
                     acc = binary_accuracy(probs,labels_bin)
                 else:
                     loss = (outputs - labels)**2
@@ -174,7 +192,7 @@ def train_one_epoch(model: torch.nn.Module,
         metric_logger.update(weight_decay=weight_decay_value)
         metric_logger.update(grad_norm=grad_norm)
 
-        if use_wandb:
+        if use_wandb and global_rank == 0:
             wandb.log({'epoch'      : epoch,
                        'train_loss' : loss_value,
                        'train_acc'  : acc.item(),
@@ -207,8 +225,9 @@ def val_one_epoch(model: torch.nn.Module,
                   data_loader: Iterable,
                   device: torch.device,
                   epoch: int,
-                  step: int,
-                  use_wandb=False):
+                  use_wandb=False,
+                  cls_wt_scale=1,
+                  global_rank=0):
     model.eval()
     labels = list()
     probs = list()
@@ -223,29 +242,63 @@ def val_one_epoch(model: torch.nn.Module,
         decode_masked_pos = decode_masked_pos.to(
             device, non_blocking=True).flatten(1).to(torch.bool)
         labels_bin = labels_bin.to(device,non_blocking=True)
+        labels_bin_wt = (labels_bin*cls_wt_scale)+((1-labels_bin)*1)
+        # labels_bin_wt /= cls_wt_scale+1
         labels.append(labels_bin)
 
         with torch.cuda.amp.autocast(), torch.no_grad():
             outputs = model(images, bool_masked_pos, decode_masked_pos)
-            prob = torch.sigmoid(outputs)
-            probs.append(prob)
-            loss.append(F.binary_cross_entropy_with_logits(outputs,labels_bin))
-            acc.append(binary_accuracy(prob,labels_bin))
+            probs.append(torch.sigmoid(outputs))
+            loss.append(F.binary_cross_entropy_with_logits(outputs,labels_bin,
+                                                           weight=labels_bin_wt))
     labels = torch.cat(labels).cpu().numpy()
     probs = torch.cat(probs).cpu().numpy()
     loss = torch.stack(loss).cpu().numpy()
-    acc = torch.stack(acc).cpu().numpy()
+    preds = probs >= 0.5
+
+    acc = accuracy_score(labels,preds)
+    bal_acc = balanced_accuracy_score(labels,preds)
+    ap = average_precision_score(labels,probs)
+    f1 = f1_score(labels,preds)
+    p = precision_score(labels,preds)
+    r = recall_score(labels,preds)
+    auc = roc_auc_score(labels,probs)
+
+    pr = precision_recall_curve(labels,probs)
+    fig_pr = plt.figure()
+    plt.plot(pr[1],pr[0])
+    plt.xlim(0,1)
+    plt.ylim(0,1)
+    plt.xlabel('RECALL')
+    plt.ylabel('PRECISION')
+
+    roc = roc_curve(labels,probs)
+    fig_roc = plt.figure()
+    plt.plot(roc[0],roc[1])    
+    plt.xlim(0,1)
+    plt.ylim(0,1)
+    plt.xlabel('FPR')
+    plt.ylabel('TPR')
+
+    cf = confusion_matrix(labels,preds,normalize='true')
+    fig_cm = plt.figure()    
+    ax = sns.heatmap(cf,fmt='.2%',annot=True,
+                     xticklabels=['NF','F'],
+                     yticklabels=['NF','F'])
+    ax.set(xlabel='PRED',ylabel='TRUE')
+
     probs = np.stack([1-probs,probs],axis=1)
 
-    if use_wandb:
-        wandb.log({'val_loss' : loss.mean(),
-                   'val_acc'  : acc.mean(),
-                   'val_pr'   : wandb.plot.pr_curve(y_true=labels,
-                                                    y_probas=probs,
-                                                    labels=['NF','F']),
-                   'val_roc'  : wandb.plot.roc_curve(y_true=labels,
-                                                     y_probas=probs,
-                                                     labels=['NF','F']),
-                   'val_cm'   : wandb.plot.confusion_matrix(y_true=labels,
-                                                            preds=probs[:,1]>=0.5,
-                                                            class_names=['NF','F'])})
+    if use_wandb and global_rank == 0:
+        wandb.log({'val_loss'    : loss.mean(),
+                   'val_acc'     : acc,
+                   'val_bal_acc' : bal_acc,
+                   'val_ap'      : ap,
+                   'val_f1'      : f1,
+                   'val_p'       : p,
+                   'val_r'       : r,
+                   'val_auc'     : auc,
+                   'val_pr'      : wandb.Image(fig_pr),
+                   'val_roc'     : wandb.Image(fig_roc),
+                   'val_cm'      : wandb.Image(fig_cm)},
+                  commit=False)
