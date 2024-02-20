@@ -80,19 +80,23 @@ def train_one_epoch(model: torch.nn.Module,
         # NOTE: When the decoder mask ratio is 0,
         # in other words, when decoder masking is not used,
         # decode_masked_pos = ~bool_masked_pos
-        images, bool_masked_pos, decode_masked_pos, labels_bin, _ = batch
+        if bin_cls:
+            images, bool_masked_pos, decode_masked_pos, labels_bin, _ = batch
+        else:
+            images, bool_masked_pos, decode_masked_pos = batch
 
         images = images.to(device, non_blocking=True)
         bool_masked_pos = bool_masked_pos.to(
             device, non_blocking=True).flatten(1).to(torch.bool)
         decode_masked_pos = decode_masked_pos.to(
             device, non_blocking=True).flatten(1).to(torch.bool)
-        labels_bin = labels_bin.to(device,non_blocking=True)
-        if cls_wt_scale > 0:
-            labels_bin_wt = (labels_bin*cls_wt_scale)+((1-labels_bin)*1)
-            labels_bin_wt /= cls_wt_scale+1
-        else:
-            labels_bin_wt = torch.ones_like(labels_bin)/labels_bin.shape[0]
+        if bin_cls:
+            labels_bin = labels_bin.to(device,non_blocking=True)
+            if cls_wt_scale > 0:
+                labels_bin_wt = (labels_bin*cls_wt_scale)+((1-labels_bin)*1)
+                labels_bin_wt /= cls_wt_scale+1
+            else:
+                labels_bin_wt = torch.ones_like(labels_bin)/labels_bin.shape[0]
 
         with torch.no_grad():
             # calculate the predict label
@@ -198,15 +202,25 @@ def train_one_epoch(model: torch.nn.Module,
         metric_logger.update(grad_norm=grad_norm)
 
         if use_wandb and global_rank == 0:
-            wandb.log({'epoch'      : epoch,
-                       'train_loss' : loss_value,
-                       'train_acc'  : acc.item(),
-                       'loss_scale' : loss_scale_value,
-                       'max_lr'     : max_lr,
-                       'min_lr'     : min_lr,
-                       'wd'         : weight_decay_value,
-                       'grad_norm'  : grad_norm},
-                       step=it)
+            if bin_cls:
+                wandb.log({'epoch'      : epoch,
+                        'train_loss' : loss_value,
+                        'train_acc'  : acc.item(),
+                        'loss_scale' : loss_scale_value,
+                        'max_lr'     : max_lr,
+                        'min_lr'     : min_lr,
+                        'wd'         : weight_decay_value,
+                        'grad_norm'  : grad_norm},
+                        step=it)
+            else:
+                wandb.log({'epoch'      : epoch,
+                        'train_loss' : loss_value,
+                        'loss_scale' : loss_scale_value,
+                        'max_lr'     : max_lr,
+                        'min_lr'     : min_lr,
+                        'wd'         : weight_decay_value,
+                        'grad_norm'  : grad_norm},
+                        step=it)
 
         if log_writer is not None:
             log_writer.update(loss=loss_value, head="loss")

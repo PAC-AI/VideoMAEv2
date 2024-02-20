@@ -37,19 +37,20 @@ def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
     parser.add_argument('--use_wandb', action='store_true', default=True)
-    parser.add_argument('--batch_size', default=6, type=int)
+    parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--epochs', default=200, type=int)
     parser.add_argument('--save_ckpt_freq', default=10, type=int)
     parser.add_argument('--bin_cls',action='store_true',default=True)
     parser.add_argument('--cls_wt_scale',default=10,type=float)
-    parser.add_argument('--da_resize_only',default=False,action='store_true')
-    parser.add_argument('--freeze_enc',default=False,action='store_true')
+    parser.add_argument('--da_resize_only',action='store_true',default=False)
+    parser.add_argument('--freeze_enc',action='store_true',default=False)
     parser.add_argument('--hflip',action='store_true',default=True)
 
     # Model parameters
     parser.add_argument(
         '--model',
-        default='pretrain_videomae_giant_patch14_224', # 'pretrain_videomae_base_patch16_224',
+        # default='pretrain_videomae_giant_patch14_224', 
+        default = 'pretrain_videomae_base_patch16_224',
         type=str,
         metavar='MODEL',
         help='Name of model to train')
@@ -150,7 +151,8 @@ def get_args():
     parser.add_argument(
         '--lr',
         type=float,
-        default=6e-4,
+        # default=6e-4,
+        default=1e-3,
         metavar='LR',
         help='learning rate (default: 1.5e-4)')
     parser.add_argument(
@@ -197,29 +199,34 @@ def get_args():
     parser.add_argument(
         '--finetune',
         # default='',
-        default='/home/shrik/data/VideoMAEv2/vit_g_hybrid_pt_1200e.pth', 
+        # default='/home/shrik/data/VideoMAEv2/vit_g_hybrid_pt_1200e.pth', 
         # default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_giant_pret/checkpoint-135.pth',
+        default='/home/shrik/data/VideoMAEv2/output/b_pt_200e/checkpoint-150.pth',
         help='finetune from checkpoint')
 
     # Dataset parameters
     parser.add_argument(
         '--data_path',
         default='/home/shrik/data/VideoMAEv2/videos_ft_train_70_30_1.txt',
+        # default='/home/shrik/data/VideoMAEv2/videos_pt.txt',
         type=str,
         help='dataset path')
     parser.add_argument(
         '--val_data_path',
+        # default='',
         default='/home/shrik/data/VideoMAEv2/clips_ft_val_70_30_1.txt',
         type=str,
         help='val dataset path')
     parser.add_argument(
         '--train_labels_f',
+        # default='',
         default='/home/shrik/data/frailty/labels_train_70_30_1.csv',
         type=str,
         help='train labels'
     )
     parser.add_argument(
         '--val_labels_f',
+        # default='',
         default='/home/shrik/data/frailty/labels_val_70_30_1.csv',
         type=str,
         help='val labels'
@@ -239,11 +246,13 @@ def get_args():
     parser.add_argument('--num_sample', type=int, default=1)
     parser.add_argument(
         '--output_dir',
-        default='/home/shrik/data/VideoMAEv2/output/g_ft_os_ls10_daf_tv73_200e',
+        # default='/home/shrik/data/VideoMAEv2/output/g_ft_os_ls10_daf_tv73_200e',
+        default='/home/shrik/data/VideoMAEv2/output/b_pt_ft_os_ls10_daf_tv73_200e',
         help='path where to save, empty for no saving')
     parser.add_argument(
         '--log_dir', 
-        default='/home/shrik/data/VideoMAEv2/output/g_ft_os_ls10_daf_tv73_200e',
+        # default='/home/shrik/data/VideoMAEv2/output/g_ft_os_ls10_daf_tv73_200e',
+        default='/home/shrik/data/VideoMAEv2/output/b_pt_ft_os_ls10_daf_tv73_200e',
         help='path where to tensorboard log')
     parser.add_argument(
         '--device',
@@ -258,7 +267,7 @@ def get_args():
 
     parser.add_argument(
         '--start_epoch', default=0, type=int, metavar='N', help='start epoch')
-    parser.add_argument('--num_workers', default=4, type=int)
+    parser.add_argument('--num_workers', default=1, type=int)
     parser.add_argument(
         '--pin_mem',
         action='store_true',
@@ -507,7 +516,7 @@ def main(args):
                     optimizer=optimizer,
                     loss_scaler=loss_scaler,
                     epoch=epoch)
-        if epoch % 5 == 0:        
+        if args.bin_cls and epoch % 5 == 0:        
             val_one_epoch(model,
                         data_loader_val,
                         device,

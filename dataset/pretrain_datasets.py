@@ -428,7 +428,7 @@ class VideoMAE(torch.utils.data.Dataset):
             self.labels = {row['patient_f'] : float(row['is_frail'])
                            for row in csv.DictReader(open(labels_f))}
         else:
-            self.labels = defaultdict(None)
+            self.labels = None
 
         self.video_loader = get_video_loader()
         self.image_loader = get_image_loader()
@@ -444,6 +444,7 @@ class VideoMAE(torch.utils.data.Dataset):
     def __getitem__(self, index):
         try:
             video_name, start_idx, total_frame = self.clips[index]
+            label = self.labels[video_name] if self.labels else None
             if total_frame < 0:  # load video
                 decord_vr = self.video_loader(video_name)
                 duration = len(decord_vr)
@@ -498,8 +499,7 @@ class VideoMAE(torch.utils.data.Dataset):
                 process_data_list.append(process_data)
                 encoder_mask_list.append(encoder_mask)
                 decoder_mask_list.append(decoder_mask)
-            return (process_data_list, encoder_mask_list, decoder_mask_list, 
-                    self.labels[video_name], video_name)
+            return process_data_list, encoder_mask_list, decoder_mask_list
         else:
             process_data, encoder_mask, decoder_mask = self.transform(
                 (images, None))
@@ -508,7 +508,7 @@ class VideoMAE(torch.utils.data.Dataset):
                 (self.new_length, 3) + process_data.size()[-2:]).transpose(
                     0, 1)
             return (process_data, encoder_mask, decoder_mask, 
-                    self.labels[video_name], video_name)
+                    label, video_name)
 
     def __len__(self):
         return len(self.clips)
