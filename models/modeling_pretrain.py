@@ -49,7 +49,8 @@ class PretrainVisionTransformerEncoder(nn.Module):
                  use_learnable_pos_emb=False,
                  with_cp=False,
                  all_frames=16,
-                 cos_attn=False):
+                 cos_attn=False,
+                 freeze_enc=False):
         super().__init__()
         self.num_classes = num_classes
         # num_features for consistency with other models
@@ -96,6 +97,15 @@ class PretrainVisionTransformerEncoder(nn.Module):
             trunc_normal_(self.pos_embed, std=.02)
 
         self.apply(self._init_weights)
+
+        if freeze_enc:
+            print('freezing encoder ...')
+            for p in self.patch_embed.parameters():
+                p.requires_grad = False
+            for p in self.blocks.parameters():
+                p.requires_grad = False
+            for p in self.norm.parameters():
+                p.requires_grad = False
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -269,6 +279,7 @@ class PretrainVisionTransformer(nn.Module):
         all_frames=16,
         cos_attn=False,
         bin_cls=False,
+        freeze_enc=False
     ):
         super().__init__()
         self.encoder = PretrainVisionTransformerEncoder(
@@ -291,7 +302,8 @@ class PretrainVisionTransformer(nn.Module):
             use_learnable_pos_emb=use_learnable_pos_emb,
             with_cp=with_cp,
             all_frames=all_frames,
-            cos_attn=cos_attn)
+            cos_attn=cos_attn,
+            freeze_enc=freeze_enc)
 
         self.bin_cls = bin_cls
         if bin_cls:

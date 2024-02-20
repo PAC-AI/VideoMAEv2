@@ -37,12 +37,14 @@ def get_args():
     parser = argparse.ArgumentParser(
         'VideoMAE v2 pre-training script', add_help=False)
     parser.add_argument('--use_wandb', action='store_true', default=True)
-    
     parser.add_argument('--batch_size', default=6, type=int)
-    parser.add_argument('--epochs', default=300, type=int)
-    parser.add_argument('--save_ckpt_freq', default=1, type=int)
+    parser.add_argument('--epochs', default=200, type=int)
+    parser.add_argument('--save_ckpt_freq', default=10, type=int)
     parser.add_argument('--bin_cls',action='store_true',default=True)
-    parser.add_argument('--cls_wt_scale',default=4,type=float)
+    parser.add_argument('--cls_wt_scale',default=10,type=float)
+    parser.add_argument('--da_resize_only',default=False,action='store_true')
+    parser.add_argument('--freeze_enc',default=False,action='store_true')
+    parser.add_argument('--hflip',action='store_true',default=True)
 
     # Model parameters
     parser.add_argument(
@@ -133,7 +135,8 @@ def get_args():
     parser.add_argument(
         '--weight_decay',
         type=float,
-        default=0.05,
+        # default=0.05,
+        default=0.1,
         help='weight decay (default: 0.05)')
     parser.add_argument(
         '--weight_decay_end',
@@ -166,7 +169,7 @@ def get_args():
     parser.add_argument(
         '--warmup_epochs',
         type=int,
-        default=30,
+        default=20,
         metavar='N',
         help='epochs to warmup LR, if scheduler supports')
     parser.add_argument(
@@ -194,30 +197,30 @@ def get_args():
     parser.add_argument(
         '--finetune',
         # default='',
-        # default='/home/shrik/data/VideoMAEv2/vit_g_hybrid_pt_1200e.pth', 
-        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_giant_pret/checkpoint-135.pth',
+        default='/home/shrik/data/VideoMAEv2/vit_g_hybrid_pt_1200e.pth', 
+        # default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_giant_pret/checkpoint-135.pth',
         help='finetune from checkpoint')
 
     # Dataset parameters
     parser.add_argument(
         '--data_path',
-        default='/home/shrik/data/VideoMAEv2/videos_ft_train_70_30.txt',
+        default='/home/shrik/data/VideoMAEv2/videos_ft_train_70_30_1.txt',
         type=str,
         help='dataset path')
     parser.add_argument(
         '--val_data_path',
-        default='/home/shrik/data/VideoMAEv2/videos_ft_val_70_30.txt',
+        default='/home/shrik/data/VideoMAEv2/clips_ft_val_70_30_1.txt',
         type=str,
         help='val dataset path')
     parser.add_argument(
         '--train_labels_f',
-        default='/home/shrik/data/frailty/labels_train_70_30.csv',
+        default='/home/shrik/data/frailty/labels_train_70_30_1.csv',
         type=str,
         help='train labels'
     )
     parser.add_argument(
         '--val_labels_f',
-        default='/home/shrik/data/frailty/labels_val_70_30.csv',
+        default='/home/shrik/data/frailty/labels_val_70_30_1.csv',
         type=str,
         help='val labels'
     )
@@ -236,11 +239,11 @@ def get_args():
     parser.add_argument('--num_sample', type=int, default=1)
     parser.add_argument(
         '--output_dir',
-        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_g_pt_ft_ls_tv7030',
+        default='/home/shrik/data/VideoMAEv2/output/g_ft_os_ls10_daf_tv73_200e',
         help='path where to save, empty for no saving')
     parser.add_argument(
         '--log_dir', 
-        default='/home/shrik/data/VideoMAEv2/output/VideoMAEv2_g_pt_ft_ls_tv7030',
+        default='/home/shrik/data/VideoMAEv2/output/g_ft_os_ls10_daf_tv73_200e',
         help='path where to tensorboard log')
     parser.add_argument(
         '--device',
@@ -294,7 +297,8 @@ def get_model(args):
         all_frames=args.num_frames,
         tubelet_size=args.tubelet_size,
         decoder_depth=args.decoder_depth,
-        with_cp=args.with_checkpoint)
+        with_cp=args.with_checkpoint,
+        freeze_enc=args.freeze_enc)
 
     if version.parse(torch.__version__) > version.parse('1.13.1'):
         torch.set_float32_matmul_precision('high')
@@ -310,7 +314,7 @@ def main(args):
 
     device = torch.device(args.device)
 
-    if args.use_wandb:
+    if args.use_wandb and utils.get_rank() == 0:
         run_name = args.output_dir.split('/')[-1]
         wandb.init(project='Frailty', 
                    entity='cerc-pac', 
@@ -466,9 +470,10 @@ def main(args):
         optimizer=optimizer,
         loss_scaler=loss_scaler)
     torch.cuda.empty_cache()
+
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
-    for epoch in range(args.start_epoch, args.epochs):
+    for epoch in range(args.start_epoch, args.epochs+1):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
         if log_writer is not None:
@@ -492,8 +497,9 @@ def main(args):
             cls_wt_scale=args.cls_wt_scale,
             global_rank=global_rank)
         if args.output_dir:
-            _epoch = epoch + 1
-            if _epoch % args.save_ckpt_freq == 0 or _epoch == args.epochs:
+            if (epoch > 0 and 
+                (epoch % args.save_ckpt_freq == 0 or 
+                 epoch == args.epochs)):
                 utils.save_model(
                     args=args,
                     model=model,
@@ -501,14 +507,15 @@ def main(args):
                     optimizer=optimizer,
                     loss_scaler=loss_scaler,
                     epoch=epoch)
-        
-        val_one_epoch(model,
-                      data_loader_val,
-                      device,
-                      epoch,
-                      use_wandb=args.use_wandb,
-                      cls_wt_scale=args.cls_wt_scale,
-                      global_rank=global_rank)
+        if epoch % 5 == 0:        
+            val_one_epoch(model,
+                        data_loader_val,
+                        device,
+                        epoch,
+                        use_wandb=args.use_wandb,
+                        cls_wt_scale=args.cls_wt_scale,
+                        global_rank=global_rank,
+                        val_data_path=args.val_data_path)
                 
         log_stats = {
             **{f'train_{k}': v

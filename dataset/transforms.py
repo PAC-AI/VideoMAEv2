@@ -398,12 +398,14 @@ class GroupMultiScaleCrop(object):
                  max_distort=1,
                  fix_crop=True,
                  more_fix_crop=True,
-                 resize_only=False):
+                 resize_only=False,
+                 hflip=False):
         self.scales = scales if scales is not None else [1, .875, .75, .66]
         self.max_distort = max_distort
         self.fix_crop = fix_crop
         self.more_fix_crop = more_fix_crop
         self.resize_only = resize_only
+        self.hflip = hflip
         self.input_size = input_size if not isinstance(input_size, int) else [
             input_size, input_size
         ]
@@ -413,6 +415,9 @@ class GroupMultiScaleCrop(object):
         img_group, label = img_tuple
 
         im_size = img_group[0].size
+        if self.hflip and random.random() >= 0.5:
+            img_group = [im.transpose(Image.Transpose.FLIP_LEFT_RIGHT) 
+                         for im in img_group]
         if not self.resize_only:
             crop_w, crop_h, offset_w, offset_h = self._sample_crop_size(im_size)
             img_group = [

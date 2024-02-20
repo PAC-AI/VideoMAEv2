@@ -24,7 +24,7 @@ from .transforms import (
 
 class DataAugmentationForVideoMAEv2(object):
 
-    def __init__(self, args):
+    def __init__(self, args, is_val=False):
         self.input_mean = [0.485, 0.456, 0.406]
         self.input_std = [0.229, 0.224, 0.225]
         div = True
@@ -33,7 +33,10 @@ class DataAugmentationForVideoMAEv2(object):
         normalize = GroupNormalize(self.input_mean, self.input_std)
         self.train_augmentation = GroupMultiScaleCrop(args.input_size,
                                                       [1, .875, .75, .66],
-                                                      resize_only=args.bin_cls)
+                                                      resize_only=(args.da_resize_only or 
+                                                                   is_val),
+                                                      hflip=(args.hflip and 
+                                                             not is_val))
         self.transform = transforms.Compose([
             self.train_augmentation,
             Stack(roll=roll),
@@ -445,11 +448,16 @@ class VideoMAE(torch.utils.data.Dataset):
                 decord_vr = self.video_loader(video_name)
                 duration = len(decord_vr)
 
-                segment_indices, skip_offsets = self._sample_train_indices(
-                    duration)
-                frame_id_list = self.get_frame_id_list(duration,
-                                                       segment_indices,
-                                                       skip_offsets)
+                if self.test_mode:
+                    frame_id_list = list(range(start_idx,
+                                               start_idx+self.skip_length,
+                                               self.new_step))
+                else:
+                    segment_indices, skip_offsets = self._sample_train_indices(
+                        duration)
+                    frame_id_list = self.get_frame_id_list(duration,
+                                                        segment_indices,
+                                                        skip_offsets)
                 video_data = decord_vr.get_batch(frame_id_list).asnumpy()
                 images = [
                     Image.fromarray(video_data[vid, :, :, :]).convert('RGB')
@@ -490,7 +498,8 @@ class VideoMAE(torch.utils.data.Dataset):
                 process_data_list.append(process_data)
                 encoder_mask_list.append(encoder_mask)
                 decoder_mask_list.append(decoder_mask)
-            return process_data_list, encoder_mask_list, decoder_mask_list, self.labels[video_name]
+            return (process_data_list, encoder_mask_list, decoder_mask_list, 
+                    self.labels[video_name], video_name)
         else:
             process_data, encoder_mask, decoder_mask = self.transform(
                 (images, None))
@@ -498,7 +507,8 @@ class VideoMAE(torch.utils.data.Dataset):
             process_data = process_data.view(
                 (self.new_length, 3) + process_data.size()[-2:]).transpose(
                     0, 1)
-            return process_data, encoder_mask, decoder_mask, self.labels[video_name]
+            return (process_data, encoder_mask, decoder_mask, 
+                    self.labels[video_name], video_name)
 
     def __len__(self):
         return len(self.clips)

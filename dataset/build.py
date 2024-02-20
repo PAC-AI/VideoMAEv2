@@ -38,12 +38,12 @@ def build_pretraining_dataset(args):
 
 
 def build_val_dataset(args):
-    transform = DataAugmentationForVideoMAEv2(args)
+    transform = DataAugmentationForVideoMAEv2(args,is_val=True)
     dataset = VideoMAE(
         root=args.data_root,
         setting=args.val_data_path,
         train=True,
-        test_mode=False,
+        test_mode=True,
         name_pattern=args.fname_tmpl,
         video_ext='mp4',
         is_color=True,

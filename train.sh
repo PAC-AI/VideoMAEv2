@@ -31,11 +31,12 @@ set -o errexit
 # source activate videomae
 set -o xtrace
 cd /home/shrik/VideoMAEv2
+ngpus=`nvidia-smi --list-gpus | wc -l`
 export WANDB__SERVICE_WAIT=300
 export OMP_NUM_THREADS=2
 torchrun \
 	--standalone \
-	--nproc_per_node 4 \
+	--nproc_per_node ${ngpus} \
 	--nnodes 1 \
 	run_mae_pretraining.py
 

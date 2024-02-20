@@ -8,8 +8,10 @@
 import math
 import sys
 from typing import Iterable
+from collections import Counter
 
 import numpy as np
+import pandas as pd
 from sklearn.metrics import (accuracy_score,
                              balanced_accuracy_score,
                              average_precision_score,
@@ -78,7 +80,7 @@ def train_one_epoch(model: torch.nn.Module,
         # NOTE: When the decoder mask ratio is 0,
         # in other words, when decoder masking is not used,
         # decode_masked_pos = ~bool_masked_pos
-        images, bool_masked_pos, decode_masked_pos, labels_bin = batch
+        images, bool_masked_pos, decode_masked_pos, labels_bin, _ = batch
 
         images = images.to(device, non_blocking=True)
         bool_masked_pos = bool_masked_pos.to(
@@ -86,8 +88,11 @@ def train_one_epoch(model: torch.nn.Module,
         decode_masked_pos = decode_masked_pos.to(
             device, non_blocking=True).flatten(1).to(torch.bool)
         labels_bin = labels_bin.to(device,non_blocking=True)
-        labels_bin_wt = (labels_bin*cls_wt_scale)+((1-labels_bin)*1)
-        # labels_bin_wt /= cls_wt_scale+1
+        if cls_wt_scale > 0:
+            labels_bin_wt = (labels_bin*cls_wt_scale)+((1-labels_bin)*1)
+            labels_bin_wt /= cls_wt_scale+1
+        else:
+            labels_bin_wt = torch.ones_like(labels_bin)/labels_bin.shape[0]
 
         with torch.no_grad():
             # calculate the predict label
@@ -135,7 +140,7 @@ def train_one_epoch(model: torch.nn.Module,
                 if bin_cls:
                     probs = torch.sigmoid(outputs)
                     loss = F.binary_cross_entropy_with_logits(outputs,labels_bin,
-                                                              weight=labels_bin_wt)
+                                                              labels_bin_wt)
                     acc = binary_accuracy(probs,labels_bin)
                 else:
                     loss = (outputs - labels)**2
@@ -227,14 +232,16 @@ def val_one_epoch(model: torch.nn.Module,
                   epoch: int,
                   use_wandb=False,
                   cls_wt_scale=1,
-                  global_rank=0):
+                  global_rank=0,
+                  val_data_path=None):
     model.eval()
+    video_names = list()
     labels = list()
     probs = list()
     loss = list()
     acc = list()
     for step,batch in enumerate(tqdm(data_loader,desc=f'val epoch {epoch}')):
-        images, bool_masked_pos, decode_masked_pos, labels_bin = batch
+        images, bool_masked_pos, decode_masked_pos, labels_bin, video_name = batch
 
         images = images.to(device, non_blocking=True)
         bool_masked_pos = bool_masked_pos.to(
@@ -242,19 +249,41 @@ def val_one_epoch(model: torch.nn.Module,
         decode_masked_pos = decode_masked_pos.to(
             device, non_blocking=True).flatten(1).to(torch.bool)
         labels_bin = labels_bin.to(device,non_blocking=True)
-        labels_bin_wt = (labels_bin*cls_wt_scale)+((1-labels_bin)*1)
-        # labels_bin_wt /= cls_wt_scale+1
+        if cls_wt_scale > 0:
+            labels_bin_wt = (labels_bin*cls_wt_scale)+((1-labels_bin)*1)
+            labels_bin_wt /= cls_wt_scale+1
+        else:
+            labels_bin_wt = torch.ones_like(labels_bin)/labels_bin.shape[0]
         labels.append(labels_bin)
+        video_names.extend(video_name)
 
         with torch.cuda.amp.autocast(), torch.no_grad():
             outputs = model(images, bool_masked_pos, decode_masked_pos)
             probs.append(torch.sigmoid(outputs))
             loss.append(F.binary_cross_entropy_with_logits(outputs,labels_bin,
-                                                           weight=labels_bin_wt))
+                                                           labels_bin_wt))
     labels = torch.cat(labels).cpu().numpy()
     probs = torch.cat(probs).cpu().numpy()
     loss = torch.stack(loss).cpu().numpy()
-    preds = probs >= 0.5
+
+    # clip_cnt = Counter(l.split(' ')[0]
+    #                    for l in open(val_data_path).readlines())
+    # video_name_cnt = Counter(video_names)
+    # for k,v in video_name_cnt.items():
+    #     if v != clip_cnt[k]:
+    #         pass
+    # assert clip_cnt == video_name_cnt
+    # assert labels.shape[0] == probs.shape[0]
+
+    res = pd.DataFrame({'video_name':video_names,
+                        'label'     :labels,
+                        'prob'      :probs})
+    res['pred'] = res.prob >= 0.5
+    maj_vote = res.groupby('video_name').mean().reset_index()
+    maj_vote.pred = maj_vote.pred >= 0.5
+    labels = maj_vote.label
+    probs = maj_vote.prob
+    preds = maj_vote.pred
 
     acc = accuracy_score(labels,preds)
     bal_acc = balanced_accuracy_score(labels,preds)
@@ -271,6 +300,7 @@ def val_one_epoch(model: torch.nn.Module,
     plt.ylim(0,1)
     plt.xlabel('RECALL')
     plt.ylabel('PRECISION')
+    plt.close()
 
     roc = roc_curve(labels,probs)
     fig_roc = plt.figure()
@@ -279,6 +309,7 @@ def val_one_epoch(model: torch.nn.Module,
     plt.ylim(0,1)
     plt.xlabel('FPR')
     plt.ylabel('TPR')
+    plt.close()
 
     cf = confusion_matrix(labels,preds,normalize='true')
     fig_cm = plt.figure()    
@@ -286,6 +317,7 @@ def val_one_epoch(model: torch.nn.Module,
                      xticklabels=['NF','F'],
                      yticklabels=['NF','F'])
     ax.set(xlabel='PRED',ylabel='TRUE')
+    plt.close()
 
     probs = np.stack([1-probs,probs],axis=1)
 
